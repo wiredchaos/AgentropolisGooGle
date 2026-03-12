@@ -22,7 +22,11 @@ export function createAgentRouter(orchestrator: RLMOrchestrator): Router {
         appId,
         context: context ?? {},
       });
-      res.json({ success: true, result });
+      res.json({
+        answer: result.answer,
+        confidence: result.confidence,
+        nextAction: result.nextAction,
+      });
     } catch (err) {
       console.error("[AgentRoute] Error running RLM orchestrator:", err);
       res.status(500).json({
