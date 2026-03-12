@@ -4,18 +4,26 @@ const GEMINI_MODEL = "gemini-2.5-flash";
 const EMBEDDING_MODEL = "gemini-embedding-001";
 
 export class GeminiService {
-  private client: GoogleGenAI;
+  private client: GoogleGenAI | null = null;
 
   constructor() {
-    const apiKey = process.env.GOOGLE_API_KEY;
-    if (!apiKey) {
-      throw new Error("GOOGLE_API_KEY environment variable is required");
+    // Lazy initialization: client is created on first API call so the server
+    // can start without GOOGLE_API_KEY (error is deferred to the first use).
+  }
+
+  private getClient(): GoogleGenAI {
+    if (!this.client) {
+      const apiKey = process.env.GOOGLE_API_KEY;
+      if (!apiKey) {
+        throw new Error("GOOGLE_API_KEY environment variable is required");
+      }
+      this.client = new GoogleGenAI({ apiKey });
     }
-    this.client = new GoogleGenAI({ apiKey });
+    return this.client;
   }
 
   async generateContent(prompt: string): Promise<string> {
-    const response = await this.client.models.generateContent({
+    const response = await this.getClient().models.generateContent({
       model: GEMINI_MODEL,
       contents: prompt,
     });
@@ -23,7 +31,7 @@ export class GeminiService {
   }
 
   async generateEmbedding(text: string): Promise<number[]> {
-    const response = await this.client.models.embedContent({
+    const response = await this.getClient().models.embedContent({
       model: EMBEDDING_MODEL,
       contents: text,
     });
