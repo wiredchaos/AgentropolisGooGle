@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agentropolis — School of Base</title>
+    <style>
+      :root {
+        --bg: #0d0f14;
+        --surface: #161920;
+        --border: #2a2d38;
+        --accent: #4f8ef7;
+        --accent-hover: #3a7ae8;
+        --text: #e8eaf0;
+        --muted: #8b8fa8;
+        --success: #34d399;
+        --panel-bg: #1a1d28;
+        --radius: 10px;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Inter", "Segoe UI", sans-serif;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* ── Header ── */
+      header {
+        padding: 18px 28px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .logo {
+        font-size: 1.1rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: var(--accent);
+      }
+
+      .district-badge {
+        font-size: 0.75rem;
+        background: rgba(79, 142, 247, 0.15);
+        color: var(--accent);
+        border: 1px solid rgba(79, 142, 247, 0.35);
+        border-radius: 20px;
+        padding: 3px 10px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+
+      /* ── Main layout ── */
+      main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 40px 20px 60px;
+        max-width: 760px;
+        width: 100%;
+        margin: 0 auto;
+        gap: 24px;
+      }
+
+      /* ── Section title ── */
+      .section-title {
+        text-align: center;
+        width: 100%;
+      }
+
+      .section-title h1 {
+        font-size: 1.85rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #4f8ef7 0%, #a78bfa 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 8px;
+      }
+
+      .section-title p {
+        color: var(--muted);
+        font-size: 0.95rem;
+        line-height: 1.5;
+      }
+
+      /* ── Question card ── */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 24px;
+        width: 100%;
+      }
+
+      .card label {
+        display: block;
+        font-size: 0.8rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 10px;
+      }
+
+      textarea {
+        width: 100%;
+        background: var(--panel-bg);
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        color: var(--text);
+        font-size: 0.95rem;
+        line-height: 1.6;
+        padding: 12px 14px;
+        resize: vertical;
+        min-height: 80px;
+        transition: border-color 0.2s;
+        font-family: inherit;
+      }
+
+      textarea:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+
+      textarea::placeholder {
+        color: var(--muted);
+      }
+
+      /* ── Ask button ── */
+      .ask-btn {
+        width: 100%;
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        border-radius: 7px;
+        font-size: 0.95rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        padding: 13px;
+        cursor: pointer;
+        transition: background 0.2s, opacity 0.2s;
+        margin-top: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+
+      .ask-btn:hover:not(:disabled) {
+        background: var(--accent-hover);
+      }
+
+      .ask-btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      /* spinner */
+      .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 255, 255, 0.4);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+        display: none;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* ── Response panels ── */
+      .response-section {
+        width: 100%;
+        display: none;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .response-section.visible {
+        display: flex;
+      }
+
+      .panel {
+        background: var(--panel-bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 20px 22px;
+      }
+
+      .panel-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .panel-icon {
+        font-size: 1.15rem;
+        line-height: 1;
+      }
+
+      .panel-title {
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .panel-body {
+        font-size: 0.95rem;
+        line-height: 1.7;
+        color: var(--text);
+        white-space: pre-wrap;
+      }
+
+      .panel.answer-panel {
+        border-color: rgba(79, 142, 247, 0.4);
+      }
+
+      .panel.next-panel {
+        border-color: rgba(52, 211, 153, 0.4);
+      }
+
+      .panel.next-panel .panel-title {
+        color: var(--success);
+      }
+
+      .panel.reasoning-panel .panel-title {
+        color: #a78bfa;
+      }
+
+      /* ── Error banner ── */
+      .error-banner {
+        width: 100%;
+        background: rgba(239, 68, 68, 0.12);
+        border: 1px solid rgba(239, 68, 68, 0.4);
+        border-radius: var(--radius);
+        padding: 14px 18px;
+        color: #f87171;
+        font-size: 0.9rem;
+        display: none;
+      }
+
+      .error-banner.visible {
+        display: block;
+      }
+
+      /* ── Config note ── */
+      .config-note {
+        font-size: 0.78rem;
+        color: var(--muted);
+        text-align: center;
+        margin-top: -8px;
+      }
+
+      .config-note code {
+        background: var(--panel-bg);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 1px 5px;
+        font-size: 0.76rem;
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="logo">Agentropolis</span>
+      <span class="district-badge">School of Base</span>
+    </header>
+
+    <main>
+      <div class="section-title">
+        <h1>School of Base</h1>
+        <p>
+          Ask the Google AI engine anything about your builder journey — get a
+          beginner-friendly answer, a reasoning summary, and a suggested next
+          step.
+        </p>
+      </div>
+
+      <!-- Question card -->
+      <div class="card">
+        <label for="question-input">Your Question</label>
+        <textarea
+          id="question-input"
+          placeholder="e.g. What is builder readiness?"
+          rows="3"
+        >Explain builder readiness like I'm a beginner.</textarea>
+
+        <button class="ask-btn" id="ask-btn" onclick="askSchoolOfBase()">
+          <span class="spinner" id="spinner"></span>
+          <span id="btn-label">Ask School of Base</span>
+        </button>
+      </div>
+
+      <!-- Error banner -->
+      <div class="error-banner" id="error-banner"></div>
+
+      <!-- Response panels -->
+      <div class="response-section" id="response-section">
+        <!-- Answer -->
+        <div class="panel answer-panel">
+          <div class="panel-header">
+            <span class="panel-icon">📖</span>
+            <span class="panel-title">Answer</span>
+          </div>
+          <div class="panel-body" id="answer-panel"></div>
+        </div>
+
+        <!-- Reasoning summary -->
+        <div class="panel reasoning-panel">
+          <div class="panel-header">
+            <span class="panel-icon">🧠</span>
+            <span class="panel-title">Reasoning Summary</span>
+          </div>
+          <div class="panel-body" id="reasoning-panel"></div>
+        </div>
+
+        <!-- Next step -->
+        <div class="panel next-panel">
+          <div class="panel-header">
+            <span class="panel-icon">🚀</span>
+            <span class="panel-title">Suggested Next Step</span>
+          </div>
+          <div class="panel-body" id="next-panel"></div>
+        </div>
+      </div>
+
+      <p class="config-note">
+        Backend URL: <code id="backend-url-display"></code> — set
+        <code>BACKEND_URL</code> in the script below to point to your Cloud Run
+        deployment.
+      </p>
+    </main>
+
+    <script>
+      // ── Configuration ──────────────────────────────────────────────────────
+      // Set window.BACKEND_URL before this script runs, or replace the
+      // fallback string below with your actual Cloud Run deployment URL.
+      // Example: const BACKEND_URL = "https://my-service-abc123-uc.a.run.app";
+      const BACKEND_URL =
+        window.BACKEND_URL ||
+        (window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1"
+          ? "http://localhost:3001"
+          : "https://YOUR-CLOUD-RUN-URL");
+
+      const currentLessonTitle = "Builder Readiness";
+
+      // Show the URL in the config note
+      document.getElementById("backend-url-display").textContent = BACKEND_URL;
+
+      // ── Main handler ───────────────────────────────────────────────────────
+      async function askSchoolOfBase() {
+        const questionInput = document.getElementById("question-input");
+        const userQuestion = questionInput.value.trim();
+
+        if (!userQuestion) {
+          showError("Please enter a question before asking.");
+          return;
+        }
+
+        setLoading(true);
+        clearError();
+        hideResponse();
+
+        try {
+          const response = await fetch(`${BACKEND_URL}/agent/run`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              prompt: userQuestion,
+              appId: "school-of-base",
+              mode: "teacher",
+              context: {
+                pageContext: {
+                  page: "school-of-base",
+                  section: "lesson-detail",
+                  lessonTitle: currentLessonTitle,
+                },
+                userContext: {
+                  experienceLevel: "beginner",
+                },
+              },
+            }),
+          });
+
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(
+              errData.error || `Server responded with status ${response.status}`
+            );
+          }
+
+          const data = await response.json();
+
+          renderResponse(data.answer, data.reasoningSummary, data.nextAction);
+        } catch (err) {
+          showError(
+            (err instanceof Error ? err.message : String(err)) ||
+              "Could not reach the backend. Make sure BACKEND_URL is set correctly."
+          );
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      // ── UI helpers ─────────────────────────────────────────────────────────
+      function setLoading(loading) {
+        const btn = document.getElementById("ask-btn");
+        const spinner = document.getElementById("spinner");
+        const label = document.getElementById("btn-label");
+        btn.disabled = loading;
+        spinner.style.display = loading ? "block" : "none";
+        label.textContent = loading ? "Thinking…" : "Ask School of Base";
+      }
+
+      function renderResponse(answer, reasoningSummary, nextAction) {
+        document.getElementById("answer-panel").textContent =
+          answer || "(no answer returned)";
+        document.getElementById("reasoning-panel").textContent =
+          reasoningSummary || "(no reasoning summary returned)";
+        document.getElementById("next-panel").textContent =
+          nextAction || "(no next step returned)";
+
+        document.getElementById("response-section").classList.add("visible");
+      }
+
+      function hideResponse() {
+        document.getElementById("response-section").classList.remove("visible");
+      }
+
+      function showError(msg) {
+        const banner = document.getElementById("error-banner");
+        banner.textContent = msg;
+        banner.classList.add("visible");
+      }
+
+      function clearError() {
+        const banner = document.getElementById("error-banner");
+        banner.textContent = "";
+        banner.classList.remove("visible");
+      }
+
+      // Allow pressing Enter (without Shift) inside textarea to submit
+      document
+        .getElementById("question-input")
+        .addEventListener("keydown", function (e) {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            askSchoolOfBase();
+          }
+        });
+    </script>
+  </body>
+</html>
