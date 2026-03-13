@@ -8,12 +8,17 @@ export interface RLMInput {
 }
 
 export interface RLMResult {
+  answer: string;
+  confidence: number;
+  nextAction: string;
   observation: string;
   plan: string;
   action: string;
   reflection: string;
   finalResponse: string;
 }
+
+const FALLBACK_CONFIDENCE_SCORE = 0.8;
 
 export class RLMOrchestrator {
   private geminiService: GeminiService;
@@ -29,8 +34,13 @@ export class RLMOrchestrator {
     const plan = await this.plan(input, observation);
     const action = await this.act(input, plan);
     const reflection = await this.reflect(input, action);
+    const confidence = await this.scoreConfidence(action, reflection);
+    const nextAction = await this.extractNextAction(input, plan, action);
 
     return {
+      answer: action,
+      confidence,
+      nextAction,
       observation,
       plan,
       action,
@@ -94,5 +104,30 @@ export class RLMOrchestrator {
     );
 
     return reflection;
+  }
+
+  private async scoreConfidence(action: string, reflection: string): Promise<number> {
+    const raw = await this.geminiService.generateContent(
+      `Rate the quality and confidence of the following response on a scale from 0.0 to 1.0.\n\n` +
+        `Response: ${action}\n\n` +
+        `Reflection: ${reflection}\n\n` +
+        `Respond with ONLY a decimal number between 0.0 and 1.0, nothing else.`
+    );
+    const score = parseFloat(raw.trim());
+    return isNaN(score) ? FALLBACK_CONFIDENCE_SCORE : Math.min(1.0, Math.max(0.0, score));
+  }
+
+  private async extractNextAction(
+    input: RLMInput,
+    plan: string,
+    action: string
+  ): Promise<string> {
+    return await this.geminiService.generateContent(
+      `Based on the following plan and response, what is the single most important next action the user should take?\n\n` +
+        `User prompt: ${input.prompt}\n\n` +
+        `Plan: ${plan}\n\n` +
+        `Response provided: ${action}\n\n` +
+        `Respond with a single concise next action statement (one sentence).`
+    );
   }
 }
