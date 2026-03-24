@@ -4,6 +4,7 @@ import { MemoryService } from "./MemoryService";
 export interface RLMInput {
   prompt: string;
   appId: string;
+  mode?: string;
   context: Record<string, unknown>;
 }
 
@@ -16,6 +17,9 @@ export interface RLMResult {
   action: string;
   reflection: string;
   finalResponse: string;
+  answer: string;
+  reasoningSummary: string;
+  nextAction: string;
 }
 
 const FALLBACK_CONFIDENCE_SCORE = 0.8;
@@ -34,8 +38,12 @@ export class RLMOrchestrator {
     const plan = await this.plan(input, observation);
     const action = await this.act(input, plan);
     const reflection = await this.reflect(input, action);
+<<<<<<< copilot/npm-run-dev-command
     const confidence = await this.scoreConfidence(action, reflection);
     const nextAction = await this.extractNextAction(input, plan, action);
+=======
+    const nextAction = await this.suggest(input, action);
+>>>>>>> main
 
     return {
       answer: action,
@@ -46,6 +54,9 @@ export class RLMOrchestrator {
       action,
       reflection,
       finalResponse: action,
+      answer: action,
+      reasoningSummary: reflection,
+      nextAction,
     };
   }
 
@@ -80,12 +91,31 @@ export class RLMOrchestrator {
     );
   }
 
+  private static readonly MODE_INSTRUCTIONS: Record<string, string> = {
+    teacher:
+      "Use simple language, short sentences, and clear examples suitable for a beginner. Avoid jargon.",
+    default: "Provide a thorough, helpful response.",
+  };
+
   private async act(input: RLMInput, plan: string): Promise<string> {
+    const modeInstruction =
+      (input.mode && RLMOrchestrator.MODE_INSTRUCTIONS[input.mode]) ||
+      RLMOrchestrator.MODE_INSTRUCTIONS.default;
+
     return await this.geminiService.generateContent(
       `You are an action agent. Execute the following plan and provide a complete response to the user's prompt.\n\n` +
         `User prompt: ${input.prompt}\n\n` +
         `Plan: ${plan}\n\n` +
-        `Provide a thorough, helpful response.`
+        `Tone instruction: ${modeInstruction}`
+    );
+  }
+
+  private async suggest(input: RLMInput, answer: string): Promise<string> {
+    return await this.geminiService.generateContent(
+      `You are a curriculum guide. Based on the question and answer below, suggest one specific next lesson, topic, or action the user should explore.\n\n` +
+        `Question: ${input.prompt}\n\n` +
+        `Answer summary: ${answer.slice(0, 500)}\n\n` +
+        `Respond with a single, concise next step (one sentence, no bullet points).`
     );
   }
 

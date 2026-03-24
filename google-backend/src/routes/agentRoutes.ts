@@ -5,7 +5,7 @@ export function createAgentRouter(orchestrator: RLMOrchestrator): Router {
   const router = Router();
 
   router.post("/run", async (req: Request, res: Response) => {
-    const { prompt, appId, context } = req.body as Partial<RLMInput>;
+    const { prompt, appId, mode, context } = req.body as Partial<RLMInput>;
 
     if (!prompt || typeof prompt !== "string") {
       res.status(400).json({ error: "prompt is required and must be a string" });
@@ -20,12 +20,18 @@ export function createAgentRouter(orchestrator: RLMOrchestrator): Router {
       const result = await orchestrator.run({
         prompt,
         appId,
+        mode: typeof mode === "string" ? mode : undefined,
         context: context ?? {},
       });
       res.json({
         answer: result.answer,
         confidence: result.confidence,
         nextAction: result.nextAction,
+        success: true,
+        answer: result.answer,
+        reasoningSummary: result.reasoningSummary,
+        nextAction: result.nextAction,
+        result,
       });
     } catch (err) {
       console.error("[AgentRoute] Error running RLM orchestrator:", err);

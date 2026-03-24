@@ -6,6 +6,7 @@ const EMBEDDING_MODEL = "gemini-embedding-001";
 export class GeminiService {
   private client: GoogleGenAI | null = null;
 
+<<<<<<< copilot/npm-run-dev-command
   constructor() {
     const apiKey = process.env.GOOGLE_API_KEY;
     if (apiKey) {
@@ -23,6 +24,18 @@ export class GeminiService {
         "GOOGLE_API_KEY environment variable is required to use AI features"
       );
     }
+=======
+  constructor() {}
+
+  private getClient(): GoogleGenAI {
+    if (!this.client) {
+      const apiKey = process.env.GOOGLE_API_KEY;
+      if (!apiKey) {
+        throw new Error("GOOGLE_API_KEY environment variable is required");
+      }
+      this.client = new GoogleGenAI({ apiKey });
+    }
+>>>>>>> main
     return this.client;
   }
 
