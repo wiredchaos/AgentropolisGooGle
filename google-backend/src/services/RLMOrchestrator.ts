@@ -9,9 +9,6 @@ export interface RLMInput {
 }
 
 export interface RLMResult {
-  answer: string;
-  confidence: number;
-  nextAction: string;
   observation: string;
   plan: string;
   action: string;
@@ -19,6 +16,7 @@ export interface RLMResult {
   finalResponse: string;
   answer: string;
   reasoningSummary: string;
+  confidence: number;
   nextAction: string;
 }
 
@@ -38,17 +36,10 @@ export class RLMOrchestrator {
     const plan = await this.plan(input, observation);
     const action = await this.act(input, plan);
     const reflection = await this.reflect(input, action);
-<<<<<<< copilot/npm-run-dev-command
     const confidence = await this.scoreConfidence(action, reflection);
     const nextAction = await this.extractNextAction(input, plan, action);
-=======
-    const nextAction = await this.suggest(input, action);
->>>>>>> main
 
     return {
-      answer: action,
-      confidence,
-      nextAction,
       observation,
       plan,
       action,
@@ -56,6 +47,7 @@ export class RLMOrchestrator {
       finalResponse: action,
       answer: action,
       reasoningSummary: reflection,
+      confidence,
       nextAction,
     };
   }
