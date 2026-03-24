@@ -1,8 +1,15 @@
 import request from "supertest";
 import express from "express";
 import bodyParser from "body-parser";
+import cors from "cors";
 import { createAgentRouter } from "../routes/agentRoutes";
 import { RLMOrchestrator, RLMResult } from "../services/RLMOrchestrator";
+import { GeminiService } from "../services/GeminiService";
+import { MemoryService } from "../services/MemoryService";
+
+jest.mock("../services/GeminiService");
+
+const MockedGeminiService = GeminiService as jest.MockedClass<typeof GeminiService>;
 
 const mockResult: RLMResult = {
   answer: "The builder readiness model is a framework for assessing readiness.",
@@ -13,26 +20,19 @@ const mockResult: RLMResult = {
   action: "The builder readiness model is a framework for assessing readiness.",
   reflection: "The response was complete and accurate.",
   finalResponse: "The builder readiness model is a framework for assessing readiness.",
+  reasoningSummary: "The response was complete and accurate.",
 };
 
 const mockOrchestrator = {
   run: jest.fn().mockResolvedValue(mockResult),
 } as unknown as RLMOrchestrator;
 
-function buildApp() {
+function buildMockApp() {
   const app = express();
   app.use(bodyParser.json());
   app.use("/agent", createAgentRouter(mockOrchestrator));
-import cors from "cors";
-
-import { GeminiService } from "../services/GeminiService";
-import { MemoryService } from "../services/MemoryService";
-import { RLMOrchestrator } from "../services/RLMOrchestrator";
-import { createAgentRouter } from "../routes/agentRoutes";
-
-jest.mock("../services/GeminiService");
-
-const MockedGeminiService = GeminiService as jest.MockedClass<typeof GeminiService>;
+  return app;
+}
 
 function buildApp() {
   const app = express();
@@ -54,7 +54,7 @@ describe("POST /agent/run", () => {
   });
 
   it("returns 200 with answer, confidence, and nextAction for a valid request", async () => {
-    const app = buildApp();
+    const app = buildMockApp();
     const res = await request(app)
       .post("/agent/run")
       .send({ prompt: "Explain the builder readiness model", appId: "school-of-base" });
@@ -69,7 +69,7 @@ describe("POST /agent/run", () => {
   });
 
   it("returns the answer from the orchestrator result", async () => {
-    const app = buildApp();
+    const app = buildMockApp();
     const res = await request(app)
       .post("/agent/run")
       .send({ prompt: "Explain the builder readiness model", appId: "school-of-base" });
@@ -80,7 +80,7 @@ describe("POST /agent/run", () => {
   });
 
   it("calls orchestrator.run with prompt, appId, and empty context by default", async () => {
-    const app = buildApp();
+    const app = buildMockApp();
     await request(app)
       .post("/agent/run")
       .send({ prompt: "Hello", appId: "my-app" });
@@ -88,12 +88,13 @@ describe("POST /agent/run", () => {
     expect(mockOrchestrator.run).toHaveBeenCalledWith({
       prompt: "Hello",
       appId: "my-app",
+      mode: undefined,
       context: {},
     });
   });
 
   it("passes context through to orchestrator when provided", async () => {
-    const app = buildApp();
+    const app = buildMockApp();
     const ctx = { role: "admin" };
     await request(app)
       .post("/agent/run")
@@ -102,33 +103,34 @@ describe("POST /agent/run", () => {
     expect(mockOrchestrator.run).toHaveBeenCalledWith({
       prompt: "Hello",
       appId: "my-app",
+      mode: undefined,
       context: ctx,
     });
   });
 
   it("returns 400 when prompt is missing", async () => {
-    const app = buildApp();
+    const app = buildMockApp();
     const res = await request(app)
       .post("/agent/run")
       .send({ appId: "school-of-base" });
 
     expect(res.status).toBe(400);
-    expect(res.body).toHaveProperty("error");
+    expect(res.body.error).toMatch(/prompt is required/);
   });
 
   it("returns 400 when appId is missing", async () => {
-    const app = buildApp();
+    const app = buildMockApp();
     const res = await request(app)
       .post("/agent/run")
       .send({ prompt: "Hello" });
 
     expect(res.status).toBe(400);
-    expect(res.body).toHaveProperty("error");
+    expect(res.body.error).toMatch(/appId is required/);
   });
 
   it("returns 500 when orchestrator throws an error", async () => {
     (mockOrchestrator.run as jest.Mock).mockRejectedValue(new Error("Gemini unavailable"));
-    const app = buildApp();
+    const app = buildMockApp();
     const res = await request(app)
       .post("/agent/run")
       .send({ prompt: "Hello", appId: "my-app" });
@@ -136,27 +138,6 @@ describe("POST /agent/run", () => {
     expect(res.status).toBe(500);
     expect(res.body).toHaveProperty("error");
     expect(res.body.details).toBe("Gemini unavailable");
-    MockedGeminiService.mockClear();
-  });
-
-  it("returns 400 when prompt is missing", async () => {
-    const app = buildApp();
-    const res = await request(app)
-      .post("/agent/run")
-      .send({ appId: "test-app" });
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/prompt is required/);
-  });
-
-  it("returns 400 when appId is missing", async () => {
-    const app = buildApp();
-    const res = await request(app)
-      .post("/agent/run")
-      .send({ prompt: "Hello" });
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/appId is required/);
   });
 
   it("returns 200 with result when prompt and appId are provided", async () => {
@@ -196,3 +177,4 @@ describe("POST /agent/run", () => {
     expect(res.body.details).toMatch(/GOOGLE_API_KEY/);
   });
 });
+

@@ -24,13 +24,11 @@ export function createAgentRouter(orchestrator: RLMOrchestrator): Router {
         context: context ?? {},
       });
       res.json({
+        success: true,
         answer: result.answer,
         confidence: result.confidence,
         nextAction: result.nextAction,
-        success: true,
-        answer: result.answer,
         reasoningSummary: result.reasoningSummary,
-        nextAction: result.nextAction,
         result,
       });
     } catch (err) {
