@@ -24,6 +24,9 @@ export function createAgentRouter(orchestrator: RLMOrchestrator): Router {
         context: context ?? {},
       });
       res.json({
+        answer: result.answer,
+        confidence: result.confidence,
+        nextAction: result.nextAction,
         success: true,
         answer: result.answer,
         reasoningSummary: result.reasoningSummary,
