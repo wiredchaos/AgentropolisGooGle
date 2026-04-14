@@ -37,6 +37,14 @@ const WORKFLOWS = {
     { id: "plg3", name: "Cross-Sell Industry Bundles", trigger: "on_schedule", risk: "low", web3: false, desc: "Segment by industry → auto-generate vertical-specific feature bundles + activation campaigns." },
     { id: "plg4", name: "Token-Incentivized Activation", trigger: "on_action", risk: "medium", web3: true, desc: "Key product actions → trigger token/points reward → auto-communicate via preferred channel." },
   ],
+  "🎬 Higgsfield Outreach Engine": [
+    { id: "h1", name: "Shopify Store Video Pitch", trigger: "on_scrape", risk: "low", web3: false, desc: "Scrape Shopify stores → enrich CMO contacts via Apollo → generate 9 free video ad formats per product via Higgsfield Marketing Studio Seedance 2.0 → send cold pitch with videos already made. Cost: $0.347/gen." },
+    { id: "h2", name: "Free Ad → Retainer Conversion", trigger: "on_open", risk: "low", web3: false, desc: "Prospect opens pitch email → auto-trigger follow-up with pricing → present $200/mo retainer → route hot leads to closer. Math: 5k stores × 5% = 250 clients × $200 = $50k MRR." },
+    { id: "h3", name: "Brand Ambassador Face Lock", trigger: "on_generate", risk: "low", web3: false, desc: "Upload custom face once → lock across all 9 Seedance 2.0 formats (UGC, unboxing, review, TV spot, etc.) → consistent ambassador identity per client brand." },
+    { id: "h4", name: "Scale Math Revenue Tracker", trigger: "continuous", risk: "low", web3: false, desc: "Live dashboard: stores scraped → emails sent → open rate → response rate → retainer conversions → MRR vs fulfillment cost (Marketing Studio subscription)." },
+    { id: "h5", name: "Multi-Vertical Product Scraper", trigger: "scheduled", risk: "medium", web3: false, desc: "Auto-scrape product URLs across Shopify, WooCommerce, BigCommerce → deduplicate → score by AOV + ad spend signals → prioritize high-value targets for video generation." },
+    { id: "h6", name: "Video Format A/B Engine", trigger: "on_response", risk: "low", web3: false, desc: "Track which of 9 formats (UGC vs TV spot vs unboxing) gets highest response rate per vertical → auto-optimize lead format selection by industry cluster." },
+  ],
 };
 
 const RISK_COLOR = { low: "#00ff9d", medium: "#ffb800", high: "#ff4444" };
@@ -49,26 +57,155 @@ const CATEGORY_ICONS = {
   "Partner & Channel": "🤝",
   "Social & Community": "🌐",
   "Product-Led Growth": "🚀",
+  "🎬 Higgsfield Outreach Engine": "🎬",
 };
 
 const ALL_WORKFLOWS = Object.values(WORKFLOWS).flat();
 
+// ── MRR Calculator ────────────────────────────────────────────────────────────
+function MRRCalculator() {
+  const [stores, setStores] = useState(5000);
+  const [cvr, setCvr] = useState(5);
+  const [retainer, setRetainer] = useState(200);
+
+  const clients = Math.floor(stores * (cvr / 100));
+  const mrr = clients * retainer;
+  const genCost = stores * 9 * 0.347;
+  const profit = mrr - genCost;
+
+  return (
+    <div style={{
+      background: "#0c0e16", border: "1px solid #1a3020",
+      borderRadius: 10, padding: "20px", marginBottom: 20,
+    }}>
+      <div style={{
+        fontSize: 11, color: "#00ff9d", letterSpacing: "0.15em",
+        textTransform: "uppercase", marginBottom: 14,
+        display: "flex", alignItems: "center", gap: 8,
+      }}>
+        <span style={{ fontSize: 14 }}>📊</span> Scale Math Calculator
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+        {[
+          { label: "Stores Targeted", val: stores, set: setStores, min: 100, max: 50000, step: 100 },
+          { label: "Conversion Rate %", val: cvr, set: setCvr, min: 1, max: 30, step: 0.5 },
+          { label: "Retainer $/mo", val: retainer, set: setRetainer, min: 50, max: 2000, step: 50 },
+        ].map((s) => (
+          <div key={s.label}>
+            <div style={{ fontSize: 10, color: "#445", letterSpacing: "0.1em", marginBottom: 6 }}>
+              {s.label.toUpperCase()}
+            </div>
+            <input
+              type="range" min={s.min} max={s.max} step={s.step}
+              value={s.val} onChange={(e) => s.set(Number(e.target.value))}
+              style={{ width: "100%", accentColor: "#4466ff" }}
+            />
+            <div style={{ fontSize: 13, color: "#aab", marginTop: 4, fontWeight: 600 }}>
+              {s.label.includes("%") ? `${s.val}%` : s.label.includes("$") ? `$${s.val}` : s.val.toLocaleString()}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+        {[
+          { label: "Clients Won", val: clients.toLocaleString(), color: "#88aaff" },
+          { label: "MRR", val: `$${mrr.toLocaleString()}`, color: "#00ff9d" },
+          { label: "Gen Cost", val: `$${genCost.toFixed(0)}`, color: "#ffb800" },
+          { label: "Net Profit/mo", val: `$${profit.toLocaleString()}`, color: profit > 0 ? "#00ff9d" : "#ff4444" },
+        ].map((m) => (
+          <div key={m.label} style={{
+            background: "#080a0f", border: "1px solid #1a2035",
+            borderRadius: 8, padding: "12px", textAlign: "center",
+          }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: m.color }}>{m.val}</div>
+            <div style={{ fontSize: 10, color: "#445", marginTop: 3, letterSpacing: "0.08em" }}>
+              {m.label.toUpperCase()}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Video Pitch Preview ───────────────────────────────────────────────────────
+function VideoPitchPreview() {
+  const formats = [
+    { icon: "📱", label: "UGC Raw", ctr: "8.2%" },
+    { icon: "📦", label: "Unboxing", ctr: "6.7%" },
+    { icon: "⭐", label: "Product Review", ctr: "5.9%" },
+    { icon: "📺", label: "TV Spot", ctr: "4.4%" },
+    { icon: "🎯", label: "Direct CTA", ctr: "7.1%" },
+    { icon: "🤳", label: "Ambassador", ctr: "9.3%" },
+    { icon: "🛍️", label: "Haul Format", ctr: "5.2%" },
+    { icon: "🔥", label: "Trending Hook", ctr: "11.1%" },
+    { icon: "💬", label: "Testimonial", ctr: "6.8%" },
+  ];
+
+  return (
+    <div style={{
+      background: "#0c0e16", border: "1px solid #2a1f40",
+      borderRadius: 10, padding: "20px", marginBottom: 20,
+    }}>
+      <div style={{
+        fontSize: 11, color: "#9966ff", letterSpacing: "0.15em",
+        textTransform: "uppercase", marginBottom: 14,
+        display: "flex", alignItems: "center", gap: 8,
+      }}>
+        <span style={{ fontSize: 14 }}>🎬</span> Seedance 2.0 — 9 Formats Per Product · $0.347/gen
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+        {formats.map((f, i) => (
+          <div key={i} style={{
+            background: "#080a0f", border: "1px solid #1a1530",
+            borderRadius: 8, padding: "10px 12px",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 16 }}>{f.icon}</span>
+              <span style={{ fontSize: 11, color: "#aab" }}>{f.label}</span>
+            </div>
+            <span style={{ fontSize: 11, color: "#00ff9d", fontWeight: 700 }}>{f.ctr}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{
+        marginTop: 12, padding: "10px 14px", background: "#080a0f",
+        borderRadius: 8, border: "1px solid #1a2035",
+        fontSize: 11, color: "#556", lineHeight: 1.7,
+      }}>
+        💌 <span style={{ color: "#88aaff" }}>Cold Pitch Template:</span>{" "}
+        <span style={{ color: "#778" }}>
+          "Hey [Name] — I built 9 video ads for [Product] using AI. No charge.
+          UGC, unboxing, TV spot — all your brand. Took 4 minutes.
+          Want the rest of the catalog done? Let's talk."
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
 export default function GTMLayer() {
   const [activeCategory, setActiveCategory] = useState("All");
   const [selectedWorkflow, setSelectedWorkflow] = useState(null);
   const [filter, setFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
-  const [enabledFlows, setEnabledFlows] = useState(new Set(["c1", "l1", "sc1"]));
+  const [enabledFlows, setEnabledFlows] = useState(new Set(["c1", "l1", "sc1", "h1", "h2", "h3"]));
   const [notification, setNotification] = useState(null);
+  const [showHiggs, setShowHiggs] = useState(false);
 
   const categories = ["All", ...Object.keys(WORKFLOWS)];
 
   const visibleFlows = (() => {
     let flows = activeCategory === "All" ? ALL_WORKFLOWS : (WORKFLOWS[activeCategory] || []);
-    if (filter === "web3") flows = flows.filter(f => f.web3);
-    if (filter === "web2") flows = flows.filter(f => !f.web3);
-    if (filter === "enabled") flows = flows.filter(f => enabledFlows.has(f.id));
-    if (searchTerm) flows = flows.filter(f =>
+    if (filter === "web3") flows = flows.filter((f) => f.web3);
+    if (filter === "web2") flows = flows.filter((f) => !f.web3);
+    if (filter === "enabled") flows = flows.filter((f) => enabledFlows.has(f.id));
+    if (filter === "higgsfield") flows = flows.filter((f) => f.id.startsWith("h"));
+    if (searchTerm) flows = flows.filter((f) =>
       f.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       f.desc.toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -82,7 +219,7 @@ export default function GTMLayer() {
 
   const toggleFlow = (id, name, e) => {
     e.stopPropagation();
-    setEnabledFlows(prev => {
+    setEnabledFlows((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
@@ -96,7 +233,7 @@ export default function GTMLayer() {
   };
 
   const enableAll = () => {
-    setEnabledFlows(new Set(ALL_WORKFLOWS.map(f => f.id)));
+    setEnabledFlows(new Set(ALL_WORKFLOWS.map((f) => f.id)));
     triggerNotification("⚡ All workflows activated", "#4466ff");
   };
 
@@ -108,8 +245,9 @@ export default function GTMLayer() {
   const stats = {
     total: ALL_WORKFLOWS.length,
     enabled: enabledFlows.size,
-    web3: ALL_WORKFLOWS.filter(f => f.web3).length,
-    high: ALL_WORKFLOWS.filter(f => f.risk === "high").length,
+    web3: ALL_WORKFLOWS.filter((f) => f.web3).length,
+    high: ALL_WORKFLOWS.filter((f) => f.risk === "high").length,
+    higgsfield: ALL_WORKFLOWS.filter((f) => f.id.startsWith("h")).length,
   };
 
   return (
@@ -129,7 +267,7 @@ export default function GTMLayer() {
         ::-webkit-scrollbar-thumb { background: #1a2540; border-radius: 3px; }
       `}</style>
 
-      {/* Toast Notification */}
+      {/* Toast */}
       {notification && (
         <div style={{
           position: "fixed", top: 20, right: 20, zIndex: 9999,
@@ -143,7 +281,7 @@ export default function GTMLayer() {
         </div>
       )}
 
-      {/* Header */}
+      {/* ── Header ── */}
       <div style={{
         borderBottom: "1px solid #1a1f2e",
         padding: "28px 36px 20px",
@@ -167,21 +305,23 @@ export default function GTMLayer() {
               WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
               letterSpacing: "-0.02em",
             }}>
-              GTM<span style={{ WebkitTextFillColor: "#4466ff" }}>FLOW</span> OS
+              GTM<span style={{ WebkitTextFillColor: "#4466ff" }}>FLOW</span>{" "}
+              <span style={{ WebkitTextFillColor: "#9944ff", fontSize: 20 }}>+ HIGGSFIELD</span>
             </h1>
             <div style={{ fontSize: 12, color: "#556", marginTop: 3 }}>
-              Universal Web2 B2B → Web3 Distribution Engine · All Industries
+              Universal Web2 B2B → Web3 · Higgsfield Video Pitch Engine · Seedance 2.0
             </div>
           </div>
 
           {/* Stats */}
-          <div style={{ display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 20, alignItems: "center", flexWrap: "wrap" }}>
             {[
               { label: "Total Workflows", val: stats.total, color: "#e8e8f0" },
               { label: "Active", val: stats.enabled, color: "#00ff9d" },
               { label: "Web3-Native", val: stats.web3, color: "#4466ff" },
+              { label: "Higgsfield", val: stats.higgsfield, color: "#9944ff" },
               { label: "Policy-Gated", val: stats.high, color: "#ff4444" },
-            ].map(s => (
+            ].map((s) => (
               <div key={s.label} style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 22, fontWeight: 700, color: s.color, lineHeight: 1 }}>{s.val}</div>
                 <div style={{ fontSize: 10, color: "#445", marginTop: 3, letterSpacing: "0.1em" }}>
@@ -189,8 +329,6 @@ export default function GTMLayer() {
                 </div>
               </div>
             ))}
-
-            {/* Bulk controls */}
             <div style={{ display: "flex", gap: 8, marginLeft: 8 }}>
               <button onClick={enableAll} style={{
                 background: "#0a1a10", border: "1px solid #00ff9d30", color: "#00ff9d",
@@ -206,13 +344,13 @@ export default function GTMLayer() {
           </div>
         </div>
 
-        {/* Search + Filter */}
+        {/* Search + Filters */}
         <div style={{ display: "flex", gap: 12, marginTop: 20, flexWrap: "wrap", alignItems: "center" }}>
           <div style={{ position: "relative" }}>
             <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#445", fontSize: 13 }}>🔍</span>
             <input
               value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
+              onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search workflows..."
               style={{
                 background: "#0d1120", border: "1px solid #1a2035", borderRadius: 6,
@@ -221,16 +359,28 @@ export default function GTMLayer() {
               }}
             />
           </div>
-          {["all", "web3", "web2", "enabled"].map(f => (
-            <button key={f} onClick={() => setFilter(f)} style={{
-              background: filter === f ? "#1a2540" : "transparent",
-              border: `1px solid ${filter === f ? "#4466ff" : "#1a2035"}`,
-              color: filter === f ? "#88aaff" : "#556",
+          {[
+            { key: "all", label: "◈ All" },
+            { key: "web3", label: "⬡ Web3" },
+            { key: "web2", label: "◻ Web2" },
+            { key: "enabled", label: "● Active" },
+            { key: "higgsfield", label: "🎬 Higgsfield" },
+          ].map((f) => (
+            <button key={f.key} onClick={() => setFilter(f.key)} style={{
+              background: filter === f.key
+                ? (f.key === "higgsfield" ? "#1a0a2e" : "#1a2540")
+                : "transparent",
+              border: `1px solid ${filter === f.key
+                ? (f.key === "higgsfield" ? "#9944ff" : "#4466ff")
+                : "#1a2035"}`,
+              color: filter === f.key
+                ? (f.key === "higgsfield" ? "#bb77ff" : "#88aaff")
+                : "#556",
               borderRadius: 6, padding: "8px 14px", fontSize: 12,
               cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.08em",
               textTransform: "uppercase", transition: "all 0.15s",
             }}>
-              {f === "all" ? "◈ All" : f === "web3" ? "⬡ Web3" : f === "web2" ? "◻ Web2" : "● Active"}
+              {f.label}
             </button>
           ))}
           {searchTerm && (
@@ -238,44 +388,65 @@ export default function GTMLayer() {
               {visibleFlows.length} result{visibleFlows.length !== 1 ? "s" : ""}
             </span>
           )}
+          <button onClick={() => setShowHiggs((h) => !h)} style={{
+            marginLeft: "auto",
+            background: showHiggs ? "#1a0a2e" : "transparent",
+            border: "1px solid #9944ff50",
+            color: "#bb77ff", borderRadius: 6, padding: "8px 16px",
+            fontSize: 11, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.08em",
+          }}>
+            {showHiggs ? "▼ HIDE PITCH ENGINE" : "▶ OPEN PITCH ENGINE"}
+          </button>
         </div>
       </div>
 
+      {/* ── Higgsfield Panel ── */}
+      {showHiggs && (
+        <div style={{ padding: "24px 36px 0", borderBottom: "1px solid #1a1f2e" }}>
+          <MRRCalculator />
+          <VideoPitchPreview />
+        </div>
+      )}
+
       <div style={{ display: "flex", minHeight: "calc(100vh - 180px)" }}>
 
-        {/* Sidebar */}
+        {/* ── Sidebar ── */}
         <div style={{
-          width: 210, borderRight: "1px solid #1a1f2e", padding: "24px 0",
+          width: 220, borderRight: "1px solid #1a1f2e", padding: "24px 0",
           flexShrink: 0, position: "sticky", top: 180, height: "calc(100vh - 180px)",
           overflowY: "auto",
         }}>
-          {categories.map(cat => {
+          {categories.map((cat) => {
             const count = cat === "All" ? ALL_WORKFLOWS.length : WORKFLOWS[cat]?.length;
             const activeCount = cat === "All"
-              ? ALL_WORKFLOWS.filter(f => enabledFlows.has(f.id)).length
-              : (WORKFLOWS[cat] || []).filter(f => enabledFlows.has(f.id)).length;
+              ? ALL_WORKFLOWS.filter((f) => enabledFlows.has(f.id)).length
+              : (WORKFLOWS[cat] || []).filter((f) => enabledFlows.has(f.id)).length;
             const isActive = activeCategory === cat;
+            const isHiggs = cat.includes("Higgsfield");
             return (
               <button key={cat} onClick={() => setActiveCategory(cat)} style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
                 width: "100%", padding: "10px 20px",
-                background: isActive ? "#0d1525" : "transparent",
-                border: "none", borderLeft: `2px solid ${isActive ? "#4466ff" : "transparent"}`,
-                color: isActive ? "#88aaff" : "#667",
+                background: isActive ? (isHiggs ? "#120820" : "#0d1525") : "transparent",
+                border: "none",
+                borderLeft: `2px solid ${isActive ? (isHiggs ? "#9944ff" : "#4466ff") : "transparent"}`,
+                color: isActive ? (isHiggs ? "#bb77ff" : "#88aaff") : "#667",
                 cursor: "pointer", fontSize: 12, textAlign: "left",
                 fontFamily: "inherit", letterSpacing: "0.04em", transition: "all 0.15s",
               }}>
-                <span>{CATEGORY_ICONS[cat]} {cat}</span>
+                <span>{CATEGORY_ICONS[cat] ?? "⬡"} {cat}</span>
                 <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                   {activeCount > 0 && (
                     <span style={{
-                      background: "#00ff9d20", borderRadius: 10,
-                      padding: "1px 5px", fontSize: 10, color: "#00ff9d",
+                      background: isHiggs ? "#9944ff20" : "#00ff9d20", borderRadius: 10,
+                      padding: "1px 5px", fontSize: 10,
+                      color: isHiggs ? "#bb77ff" : "#00ff9d",
                     }}>{activeCount}</span>
                   )}
                   <span style={{
-                    background: isActive ? "#1a2540" : "#111", borderRadius: 10,
-                    padding: "2px 7px", fontSize: 11, color: isActive ? "#4466ff" : "#445",
+                    background: isActive ? (isHiggs ? "#2a1040" : "#1a2540") : "#111",
+                    borderRadius: 10, padding: "2px 7px", fontSize: 11,
+                    color: isActive ? (isHiggs ? "#9944ff" : "#4466ff") : "#445",
                   }}>{count}</span>
                 </div>
               </button>
@@ -283,7 +454,7 @@ export default function GTMLayer() {
           })}
         </div>
 
-        {/* Main Grid */}
+        {/* ── Main Grid ── */}
         <div style={{ flex: 1, padding: "28px 32px", overflowY: "auto" }}>
           {visibleFlows.length === 0 ? (
             <div style={{ color: "#445", textAlign: "center", marginTop: 80, fontSize: 14 }}>
@@ -303,19 +474,33 @@ export default function GTMLayer() {
                 gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
                 gap: 16,
               }}>
-                {visibleFlows.map(flow => {
+                {visibleFlows.map((flow) => {
                   const isEnabled = enabledFlows.has(flow.id);
                   const isSelected = selectedWorkflow?.id === flow.id;
+                  const isHiggs = flow.id.startsWith("h");
+
                   return (
                     <div
                       key={flow.id}
                       onClick={() => setSelectedWorkflow(isSelected ? null : flow)}
                       style={{
-                        background: isSelected ? "#0d1525" : "#0c0e16",
-                        border: `1px solid ${isSelected ? "#4466ff" : isEnabled ? "#1a3020" : "#141820"}`,
+                        background: isSelected
+                          ? (isHiggs ? "#120820" : "#0d1525")
+                          : (isHiggs ? "#0e0c16" : "#0c0e16"),
+                        border: `1px solid ${
+                          isSelected
+                            ? (isHiggs ? "#9944ff" : "#4466ff")
+                            : isEnabled
+                            ? (isHiggs ? "#2a1040" : "#1a3020")
+                            : "#141820"
+                        }`,
                         borderRadius: 10, padding: "18px 20px", cursor: "pointer",
                         transition: "all 0.15s",
-                        boxShadow: isSelected ? "0 0 0 1px #4466ff40" : isEnabled ? "0 0 0 1px #00ff9d08" : "none",
+                        boxShadow: isSelected
+                          ? `0 0 0 1px ${isHiggs ? "#9944ff40" : "#4466ff40"}`
+                          : isEnabled
+                          ? `0 0 0 1px ${isHiggs ? "#9944ff08" : "#00ff9d08"}`
+                          : "none",
                         position: "relative", overflow: "hidden",
                       }}
                     >
@@ -323,7 +508,9 @@ export default function GTMLayer() {
                       {isEnabled && (
                         <div style={{
                           position: "absolute", top: 0, left: 0, right: 0, height: 2,
-                          background: "linear-gradient(90deg, transparent, #00ff9d60, transparent)",
+                          background: isHiggs
+                            ? "linear-gradient(90deg, transparent, #9944ff60, transparent)"
+                            : "linear-gradient(90deg, transparent, #00ff9d60, transparent)",
                         }} />
                       )}
 
@@ -343,16 +530,22 @@ export default function GTMLayer() {
                               border: "1px solid #4466ff30", letterSpacing: "0.1em",
                             }}>⬡ WEB3</span>
                           )}
+                          {isHiggs && (
+                            <span style={{
+                              fontSize: 10, padding: "3px 8px", borderRadius: 4,
+                              background: "#9944ff18", color: "#bb77ff",
+                              border: "1px solid #9944ff30", letterSpacing: "0.1em",
+                            }}>🎬 HIGGSFIELD</span>
+                          )}
                         </div>
-                        {/* Toggle button */}
                         <button
                           onClick={(e) => toggleFlow(flow.id, flow.name, e)}
                           style={{
-                            background: isEnabled ? "#00ff9d15" : "#1a1f2e",
-                            border: `1px solid ${isEnabled ? "#00ff9d40" : "#2a2f40"}`,
+                            background: isEnabled ? (isHiggs ? "#9944ff15" : "#00ff9d15") : "#1a1f2e",
+                            border: `1px solid ${isEnabled ? (isHiggs ? "#9944ff40" : "#00ff9d40") : "#2a2f40"}`,
                             borderRadius: 20, padding: "4px 10px",
                             fontSize: 10, cursor: "pointer",
-                            color: isEnabled ? "#00ff9d" : "#445",
+                            color: isEnabled ? (isHiggs ? "#bb77ff" : "#00ff9d") : "#445",
                             fontFamily: "inherit", letterSpacing: "0.08em",
                             transition: "all 0.15s", flexShrink: 0,
                           }}
@@ -363,21 +556,19 @@ export default function GTMLayer() {
 
                       {/* Flow name */}
                       <div style={{
-                        fontSize: 13, fontWeight: 600, color: isEnabled ? "#ddeeff" : "#8899bb",
+                        fontSize: 13, fontWeight: 600,
+                        color: isEnabled ? "#ddeeff" : "#8899bb",
                         marginBottom: 8, lineHeight: 1.3,
                       }}>
                         {flow.name}
                       </div>
 
                       {/* Description */}
-                      <div style={{
-                        fontSize: 11, color: "#4a5570", lineHeight: 1.6,
-                        marginBottom: 12,
-                      }}>
+                      <div style={{ fontSize: 11, color: "#4a5570", lineHeight: 1.6, marginBottom: 12 }}>
                         {flow.desc}
                       </div>
 
-                      {/* Trigger badge */}
+                      {/* Trigger + ID */}
                       <div style={{
                         fontSize: 10, color: "#334", letterSpacing: "0.08em",
                         borderTop: "1px solid #111820", paddingTop: 10,
@@ -389,18 +580,16 @@ export default function GTMLayer() {
                         }}>
                           TRIGGER: {flow.trigger.toUpperCase()}
                         </span>
-                        <span style={{ color: "#334", fontSize: 10 }}>
-                          {flow.id.toUpperCase()}
-                        </span>
+                        <span style={{ color: "#334", fontSize: 10 }}>{flow.id.toUpperCase()}</span>
                       </div>
 
                       {/* Expanded detail */}
                       {isSelected && (
-                        <div style={{
-                          marginTop: 14, paddingTop: 14,
-                          borderTop: "1px solid #1a2540",
-                        }}>
-                          <div style={{ fontSize: 10, color: "#4466ff", letterSpacing: "0.1em", marginBottom: 8 }}>
+                        <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #1a2540" }}>
+                          <div style={{
+                            fontSize: 10, letterSpacing: "0.1em", marginBottom: 8,
+                            color: isHiggs ? "#9944ff" : "#4466ff",
+                          }}>
                             WORKFLOW DETAIL
                           </div>
                           <div style={{ fontSize: 12, color: "#6688aa", lineHeight: 1.7 }}>
@@ -411,13 +600,13 @@ export default function GTMLayer() {
                               </span>
                             </div>
                             <div style={{ marginBottom: 6 }}>
-                              <span style={{ color: "#445" }}>Risk Level: </span>
+                              <span style={{ color: "#445" }}>Risk: </span>
                               <span style={{ color: RISK_COLOR[flow.risk] }}>{flow.risk.toUpperCase()}</span>
                             </div>
                             <div style={{ marginBottom: 6 }}>
                               <span style={{ color: "#445" }}>Platform: </span>
-                              <span style={{ color: flow.web3 ? "#6688ff" : "#8899bb" }}>
-                                {flow.web3 ? "Web3-Native" : "Web2 B2B"}
+                              <span style={{ color: isHiggs ? "#bb77ff" : flow.web3 ? "#6688ff" : "#8899bb" }}>
+                                {isHiggs ? "Higgsfield / Seedance 2.0" : flow.web3 ? "Web3-Native" : "Web2 B2B"}
                               </span>
                             </div>
                             <div>
@@ -425,9 +614,18 @@ export default function GTMLayer() {
                               <span style={{ color: "#aabbcc" }}>{flow.trigger}</span>
                             </div>
                           </div>
-                          {flow.risk === "high" && (
+                          {isHiggs && (
                             <div style={{
                               marginTop: 12, padding: "8px 12px", borderRadius: 6,
+                              background: "#9944ff10", border: "1px solid #9944ff30",
+                              fontSize: 11, color: "#cc99ff",
+                            }}>
+                              🎬 Powered by Higgsfield Marketing Studio · Seedance 2.0 · $0.347/generation
+                            </div>
+                          )}
+                          {flow.risk === "high" && (
+                            <div style={{
+                              marginTop: 8, padding: "8px 12px", borderRadius: 6,
                               background: "#ff444410", border: "1px solid #ff444430",
                               fontSize: 11, color: "#ff8888",
                             }}>
