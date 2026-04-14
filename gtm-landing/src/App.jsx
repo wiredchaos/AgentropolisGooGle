@@ -1,6 +1,10 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, useInView, AnimatePresence } from "framer-motion";
 import "./index.css";
+
+const GTM_CORE_API = "https://gtm-core-psi.vercel.app";
+const GTMFLOW_URL  = "https://gtmflow-frontend.vercel.app";
+const VIRALMEDIA_URL = "https://viralmedia.vercel.app";
 
 // ── App Registry (mirrors backend) ──────────────────────────────────────────
 const APPS = [
@@ -55,17 +59,41 @@ const TICKER_ITEMS = [
 
 // ── Components ───────────────────────────────────────────────────────────────
 
+function useAPIStatus() {
+  const [status, setStatus] = useState("checking");
+  const [appCount, setAppCount] = useState(null);
+  useEffect(() => {
+    fetch(`${GTM_CORE_API}/api/registry/active`)
+      .then(r => r.json())
+      .then(data => {
+        setAppCount(Array.isArray(data) ? data.length : null);
+        setStatus("online");
+      })
+      .catch(() => setStatus("offline"));
+  }, []);
+  return { status, appCount };
+}
+
 function NavBar() {
+  const { status, appCount } = useAPIStatus();
+  const dotColor = status === "online" ? "#00ff9d" : status === "offline" ? "#ff4444" : "#ffb800";
+
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 border-b border-white/5"
       style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(20px)" }}>
       <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#00ff9d",
-            animation: "pulse-dot 2s infinite" }} />
+          <div style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor,
+            animation: "pulse-dot 2s infinite", boxShadow: `0 0 6px ${dotColor}` }} />
           <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 13, letterSpacing: "0.15em" }}>
             NEURO METAX / GTM LAYER
           </span>
+          {appCount && (
+            <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 10,
+              color: "#00ff9d", letterSpacing: "0.1em", opacity: 0.7 }}>
+              · {appCount} APPS LIVE
+            </span>
+          )}
         </div>
         <div className="hidden md:flex items-center gap-6">
           {["How It Works", "Ecosystem", "Workflows", "Deploy"].map(l => (
@@ -75,11 +103,18 @@ function NavBar() {
             </a>
           ))}
         </div>
-        <a href="https://gtmos-orchids.vercel.app" target="_blank" rel="noopener noreferrer"
-          className="text-xs px-4 py-2 rounded-sm font-medium tracking-widest uppercase transition-all"
-          style={{ background: "#00ff9d", color: "#000" }}>
-          ENTER GTM OS
-        </a>
+        <div className="flex items-center gap-3">
+          <a href={GTMFLOW_URL} target="_blank" rel="noopener noreferrer"
+            className="hidden md:block text-xs px-3 py-2 rounded-sm font-medium tracking-widest uppercase transition-all border border-white/10 hover:bg-white/5"
+            style={{ color: "rgba(255,255,255,0.6)" }}>
+            GTMFlow OS
+          </a>
+          <a href="https://gtmos-orchids.vercel.app" target="_blank" rel="noopener noreferrer"
+            className="text-xs px-4 py-2 rounded-sm font-medium tracking-widest uppercase transition-all"
+            style={{ background: "#00ff9d", color: "#000" }}>
+            ENTER GTM OS
+          </a>
+        </div>
       </div>
     </nav>
   );
@@ -476,13 +511,37 @@ function CoreBackendSection() {
         </div>
 
         <motion.div initial={{ opacity: 0 }} animate={inView ? { opacity: 1 } : {}} transition={{ delay: 0.5 }}
-          className="p-5 rounded-sm"
+          className="p-5 rounded-sm mb-6"
           style={{ border: "1px solid rgba(0,255,157,0.2)", background: "rgba(0,255,157,0.04)",
             fontFamily: "'Space Mono', monospace", fontSize: "0.8rem", lineHeight: 1.8, color: "rgba(255,255,255,0.5)" }}>
           <div style={{ color: "#00ff9d", marginBottom: 4 }}># Stack</div>
           <div>Express 4 · TypeScript · Strict Mode · CORS · Helmet · Rate Limiting</div>
           <div>App Registry · Health Monitor · Distribution Fan-out · Analytics Ring Buffer</div>
           <div>8 GTM Workflow Definitions · API Key Auth · Vercel-deployable</div>
+        </motion.div>
+
+        {/* Live API links */}
+        <motion.div initial={{ opacity: 0 }} animate={inView ? { opacity: 1 } : {}} transition={{ delay: 0.65 }}
+          className="flex flex-wrap gap-3">
+          {[
+            { label: "Registry", path: "/api/registry" },
+            { label: "Health", path: "/api/health" },
+            { label: "Workflows", path: "/api/workflows" },
+            { label: "Analytics", path: "/api/analytics" },
+          ].map(link => (
+            <a key={link.path} href={`${GTM_CORE_API}${link.path}`} target="_blank" rel="noopener noreferrer"
+              className="text-xs px-4 py-2 rounded-sm transition-all hover:opacity-80"
+              style={{ fontFamily: "'Space Mono', monospace", letterSpacing: "0.1em",
+                border: "1px solid rgba(0,255,157,0.2)", background: "rgba(0,255,157,0.04)", color: "#00ff9d" }}>
+              {link.label} →
+            </a>
+          ))}
+          <a href={GTM_CORE_API} target="_blank" rel="noopener noreferrer"
+            className="text-xs px-4 py-2 rounded-sm transition-all hover:opacity-80"
+            style={{ fontFamily: "'Space Mono', monospace", letterSpacing: "0.1em",
+              border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: "rgba(255,255,255,0.4)" }}>
+            Root API →
+          </a>
         </motion.div>
       </div>
     </section>
@@ -523,6 +582,11 @@ function FOAMOSection() {
               className="px-10 py-4 font-bold rounded-sm tracking-widest uppercase text-sm transition-all"
               style={{ background: "#00ff9d", color: "#000" }}>
               ACTIVATE GTM OS NOW
+            </a>
+            <a href={GTMFLOW_URL} target="_blank" rel="noopener noreferrer"
+              className="px-10 py-4 font-semibold rounded-sm tracking-widest uppercase text-sm border transition-all hover:bg-white/5"
+              style={{ borderColor: "rgba(68,102,255,0.4)", color: "#88aaff" }}>
+              GTMFLOW OS →
             </a>
             <a href="https://agentseatbelt.vercel.app" target="_blank" rel="noopener noreferrer"
               className="px-10 py-4 font-semibold rounded-sm tracking-widest uppercase text-sm border transition-all hover:bg-white/5"

@@ -53,6 +53,7 @@ app.get("/", (_req, res) => {
         status: "operational",
         registeredApps: registry_2.APP_REGISTRY.length,
         activeApps: registry_2.APP_REGISTRY.filter((a) => a.active).length,
+        auth: process.env.GTM_API_KEY ? "enabled" : "open",
         endpoints: {
             registry: "/api/registry",
             registryById: "/api/registry/:id",
