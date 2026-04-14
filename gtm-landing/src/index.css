@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: #000;
+  color: #fff;
+  font-family: 'Space Grotesk', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root { width: 100%; }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px #00ff9d; }
+  50% { opacity: 0.4; box-shadow: 0 0 2px #00ff9d; }
+}
+
+@keyframes scan {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+@keyframes ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.ticker-track { animation: ticker 35s linear infinite; }
+.ticker-track:hover { animation-play-state: paused; }
+
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.glow-green { box-shadow: 0 0 20px rgba(0,255,157,0.25); }
+.glow-blue { box-shadow: 0 0 20px rgba(68,102,255,0.25); }
+
+.card-border {
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.02);
+}
+
+.layer-hub { border-color: rgba(0,255,157,0.3); }
+.layer-gtm-core { border-color: rgba(68,102,255,0.4); }
+.layer-safety { border-color: rgba(255,184,0,0.3); }
+.layer-social { border-color: rgba(236,72,153,0.3); }
+.layer-education { border-color: rgba(139,92,246,0.3); }
+.layer-infrastructure { border-color: rgba(59,130,246,0.3); }
+.layer-experience { border-color: rgba(249,115,22,0.3); }
+.layer-b2b { border-color: rgba(16,185,129,0.3); }
+.layer-intelligence { border-color: rgba(255,255,255,0.2); }
+.layer-media { border-color: rgba(239,68,68,0.3); }
+.layer-incentive { border-color: rgba(234,179,8,0.3); }
+.layer-chain { border-color: rgba(99,102,241,0.3); }
