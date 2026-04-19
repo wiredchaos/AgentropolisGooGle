@@ -1,0 +1,118 @@
+name: Codex Agent — Auto-Fix
+
+on:
+  # Trigger manually from the Actions tab with a task prompt
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "Describe the change you want Codex to implement"
+        required: true
+        type: string
+      draft_pr:
+        description: "Open as a draft PR?"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+  # Trigger automatically when a CI check fails on main
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+    branches:
+      - main
+
+jobs:
+  codex-agent:
+    name: Run Codex agent
+    runs-on: ubuntu-latest
+    # Only run the auto-fix path when the triggering workflow actually failed
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure')
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: google-backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: google-backend
+        run: npm ci
+
+      - name: Install Codex CLI
+        run: npm install -g @openai/codex
+
+      - name: Determine task prompt
+        id: task
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "prompt=${{ github.event.inputs.task }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "prompt=Investigate the CI failure and open a PR with a fix." >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Codex agent
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          codex "${{ steps.task.outputs.prompt }}"
+
+      - name: Verify build passes
+        working-directory: google-backend
+        run: npm run build
+
+      - name: Run tests
+        working-directory: google-backend
+        run: npm test
+
+      - name: Open Pull Request
+        id: open_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="codex/auto-fix-$(date +%Y%m%d-%H%M%S)"
+          git config user.name  "codex-agent[bot]"
+          git config user.email "codex-agent[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add .
+          if git diff --cached --quiet; then
+            echo "no_changes=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Codex made no file changes — no PR will be opened."
+            exit 0
+          fi
+          echo "no_changes=false" >> "$GITHUB_OUTPUT"
+          git commit -m "chore: automated fix by Codex agent"
+          git push origin "$BRANCH"
+
+          DRAFT_FLAG=""
+          if [ "${{ github.event.inputs.draft_pr }}" = "true" ] || [ "${{ github.event_name }}" = "workflow_run" ]; then
+            DRAFT_FLAG="--draft"
+          fi
+
+          gh pr create \
+            --title "chore: automated fix by Codex agent" \
+            --body "$(printf 'Automated PR opened by the Codex agent workflow.\n\n**Task:** ${{ steps.task.outputs.prompt }}\n\n> Review the diff carefully before merging.')" \
+            --base main \
+            --head "$BRANCH" \
+            $DRAFT_FLAG
+
+      - name: Report outcome
+        if: steps.open_pr.outputs.no_changes == 'true'
+        run: echo "::warning::Codex ran successfully but produced no changes. No PR was opened."

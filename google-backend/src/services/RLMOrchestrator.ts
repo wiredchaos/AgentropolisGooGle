@@ -4,16 +4,22 @@ import { MemoryService } from "./MemoryService";
 export interface RLMInput {
   prompt: string;
   appId: string;
+  mode?: string;
   context: Record<string, unknown>;
 }
 
 export interface RLMResult {
+  answer: string;
+  confidence: number;
+  nextAction: string;
   observation: string;
   plan: string;
   action: string;
   reflection: string;
   finalResponse: string;
 }
+
+const FALLBACK_CONFIDENCE_SCORE = 0.8;
 
 export class RLMOrchestrator {
   private geminiService: GeminiService;
@@ -29,8 +35,13 @@ export class RLMOrchestrator {
     const plan = await this.plan(input, observation);
     const action = await this.act(input, plan);
     const reflection = await this.reflect(input, action);
+    const confidence = await this.scoreConfidence(action, reflection);
+    const nextAction = await this.extractNextAction(input, plan, action);
 
     return {
+      answer: action,
+      confidence,
+      nextAction,
       observation,
       plan,
       action,
@@ -70,12 +81,31 @@ export class RLMOrchestrator {
     );
   }
 
+  private static readonly MODE_INSTRUCTIONS: Record<string, string> = {
+    teacher:
+      "Use simple language, short sentences, and clear examples suitable for a beginner. Avoid jargon.",
+    default: "Provide a thorough, helpful response.",
+  };
+
   private async act(input: RLMInput, plan: string): Promise<string> {
+    const modeInstruction =
+      (input.mode && RLMOrchestrator.MODE_INSTRUCTIONS[input.mode]) ||
+      RLMOrchestrator.MODE_INSTRUCTIONS.default;
+
     return await this.geminiService.generateContent(
       `You are an action agent. Execute the following plan and provide a complete response to the user's prompt.\n\n` +
         `User prompt: ${input.prompt}\n\n` +
         `Plan: ${plan}\n\n` +
-        `Provide a thorough, helpful response.`
+        `Tone instruction: ${modeInstruction}`
+    );
+  }
+
+  private async suggest(input: RLMInput, answer: string): Promise<string> {
+    return await this.geminiService.generateContent(
+      `You are a curriculum guide. Based on the question and answer below, suggest one specific next lesson, topic, or action the user should explore.\n\n` +
+        `Question: ${input.prompt}\n\n` +
+        `Answer summary: ${answer.slice(0, 500)}\n\n` +
+        `Respond with a single, concise next step (one sentence, no bullet points).`
     );
   }
 
@@ -94,5 +124,30 @@ export class RLMOrchestrator {
     );
 
     return reflection;
+  }
+
+  private async scoreConfidence(action: string, reflection: string): Promise<number> {
+    const raw = await this.geminiService.generateContent(
+      `Rate the quality and confidence of the following response on a scale from 0.0 to 1.0.\n\n` +
+        `Response: ${action}\n\n` +
+        `Reflection: ${reflection}\n\n` +
+        `Respond with ONLY a decimal number between 0.0 and 1.0, nothing else.`
+    );
+    const score = parseFloat(raw.trim());
+    return isNaN(score) ? FALLBACK_CONFIDENCE_SCORE : Math.min(1.0, Math.max(0.0, score));
+  }
+
+  private async extractNextAction(
+    input: RLMInput,
+    plan: string,
+    action: string
+  ): Promise<string> {
+    return await this.geminiService.generateContent(
+      `Based on the following plan and response, what is the single most important next action the user should take?\n\n` +
+        `User prompt: ${input.prompt}\n\n` +
+        `Plan: ${plan}\n\n` +
+        `Response provided: ${action}\n\n` +
+        `Respond with a single concise next action statement (one sentence).`
+    );
   }
 }

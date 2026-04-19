@@ -1,0 +1,13 @@
+{
+  "name": "agentropolis-google",
+  "version": "1.0.0",
+  "description": "Google Agent Engine with RLM orchestration and Cloudflare Crawl ingestion",
+  "scripts": {
+    "build": "npm run build --workspace=google-backend",
+    "start": "npm run start --workspace=google-backend",
+    "dev": "npm run dev --workspace=google-backend"
+  },
+  "workspaces": [
+    "google-backend"
+  ]
+}
