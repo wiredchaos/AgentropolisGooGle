@@ -17,9 +17,6 @@ export interface RLMResult {
   action: string;
   reflection: string;
   finalResponse: string;
-  answer: string;
-  reasoningSummary: string;
-  nextAction: string;
 }
 
 const FALLBACK_CONFIDENCE_SCORE = 0.8;
@@ -38,12 +35,8 @@ export class RLMOrchestrator {
     const plan = await this.plan(input, observation);
     const action = await this.act(input, plan);
     const reflection = await this.reflect(input, action);
-<<<<<<< copilot/npm-run-dev-command
     const confidence = await this.scoreConfidence(action, reflection);
     const nextAction = await this.extractNextAction(input, plan, action);
-=======
-    const nextAction = await this.suggest(input, action);
->>>>>>> main
 
     return {
       answer: action,
@@ -54,9 +47,6 @@ export class RLMOrchestrator {
       action,
       reflection,
       finalResponse: action,
-      answer: action,
-      reasoningSummary: reflection,
-      nextAction,
     };
   }
 
