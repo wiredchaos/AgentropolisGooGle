@@ -8,6 +8,7 @@
     "dev": "npm run dev --workspace=google-backend"
   },
   "workspaces": [
-    "google-backend"
+    "google-backend",
+    "frontend"
   ]
 }
