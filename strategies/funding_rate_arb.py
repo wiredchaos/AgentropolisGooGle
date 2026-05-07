@@ -1,11 +1,11 @@
 """
-Funding Rate Arbitrage Strategy
+Strategy: Funding Rate Arbitrage
 Exploits persistent funding rate imbalances between Binance perps and spot.
 
 When funding is highly positive:
-  → Longs are paying shorts → short perp + long spot (cash and carry)
+→ Longs are paying shorts → short perp + long spot (cash and carry)
 When funding is highly negative:
-  → Shorts are paying longs → long perp + short spot (reverse carry)
+→ Shorts are paying longs → long perp + short spot (reverse carry)
 
 Edge: funding collected every 8 hours = annualized 3x daily rate
 """
@@ -27,13 +27,13 @@ class FundingRateArbStrategy:
     enabled = True
 
     PAIRS             = ["ETHUSDT", "BTCUSDT", "SOLUSDT", "BNBUSDT", "AVAXUSDT"]
-    MIN_FUNDING_RATE  = 0.0008   # 0.08% per 8h ≈ 87% annualised
+    MIN_FUNDING_RATE  = 0.0008   # 0.08% per 8h = ~87% annualized
     MAX_POSITION_USDC = 300
 
     def __init__(self, config: dict, agent):
         self.config      = config
         self.agent       = agent
-        self._rates: dict = {}   # symbol → {funding_rate, mark_price, next_funding_time}
+        self._rates: dict = {}   # symbol → {funding_rate, next_funding_time}
         self._last_fetch  = 0
 
     def status(self) -> dict:
@@ -46,7 +46,7 @@ class FundingRateArbStrategy:
             "name":                   self.name,
             "enabled":                self.enabled,
             "min_funding_threshold":  self.MIN_FUNDING_RATE,
-            "top_rates": {k: round(v.get("funding_rate", 0) * 100, 4) for k, v in top},
+            "top_rates":              {k: round(v.get("funding_rate", 0) * 100, 4) for k, v in top},
         }
 
     async def scan(self) -> list:
@@ -77,8 +77,6 @@ class FundingRateArbStrategy:
         asyncio.create_task(self._collect_funding(trade, opp))
 
     # ------------------------------------------------------------------ #
-    #  Signal evaluation                                                   #
-    # ------------------------------------------------------------------ #
 
     def _evaluate(self, symbol: str, data: dict) -> Optional[dict]:
         rate    = data.get("funding_rate", 0)
@@ -90,35 +88,30 @@ class FundingRateArbStrategy:
         if mark <= 0:
             return None
 
-        # Prefer positions with >1h until settlement (avoid late entry)
         time_to_funding = max(0, next_ft / 1000 - time.time())
-        if time_to_funding < 3600:
+        if time_to_funding < 3600:   # less than 1h to settlement — skip
             return None
 
         # Positive rate → longs paying → short perp + long spot
         # Negative rate → shorts paying → long perp + short spot
         side       = "sell" if rate > 0 else "buy"
-        annualized = abs(rate) * 3 * 365   # 3 settlements/day × 365
+        annualized = abs(rate) * 3 * 365   # 3 payments/day × 365
 
         return {
-            "strategy":         self.name,
-            "symbol":           symbol,
-            "side":             side,
-            "mark_price":       mark,
-            "funding_rate":     rate,
-            "funding_rate_pct": rate * 100,
-            "annualized_yield": annualized,
+            "strategy":          self.name,
+            "symbol":            symbol,
+            "side":              side,
+            "mark_price":        mark,
+            "funding_rate":      rate,
+            "funding_rate_pct":  rate * 100,
+            "annualized_yield":  annualized,
             "time_to_funding_h": round(time_to_funding / 3600, 1),
-            "edge_score":       abs(rate) * 10,
-            "size_usdc":        min(
+            "edge_score":        abs(rate) * 10,
+            "size_usdc":         min(
                 self.MAX_POSITION_USDC,
                 self.config.get("bankroll_usdc", 1000) * 0.2,
             ),
         }
-
-    # ------------------------------------------------------------------ #
-    #  Data refresh                                                        #
-    # ------------------------------------------------------------------ #
 
     async def _refresh_rates(self):
         if time.time() - self._last_fetch < 120:
@@ -144,15 +137,12 @@ class FundingRateArbStrategy:
         except Exception as e:
             log.warning("Funding rate fetch failed: %s", e)
 
-    # ------------------------------------------------------------------ #
-    #  Exit management                                                     #
-    # ------------------------------------------------------------------ #
-
     async def _collect_funding(self, trade, opp: dict):
-        """Hold through 1-3 funding periods (8h each)."""
         import random
-        periods       = random.randint(1, 3)
-        await asyncio.sleep(periods * 28800)
-        price_drift   = random.gauss(0, 0.008)
-        factor        = (1 - price_drift) if trade.side == "sell" else (1 + price_drift)
-        self.agent.close_trade(trade.id, opp["mark_price"] * factor)
+        periods        = random.randint(1, 3)
+        await asyncio.sleep(periods * 28800)   # 8h per period
+        funding_earned = abs(opp["funding_rate"]) * opp["size_usdc"] * periods
+        price_drift    = random.gauss(0, 0.008)
+        factor         = (1 - price_drift) if trade.side == "sell" else (1 + price_drift)
+        exit_price     = opp["mark_price"] * factor
+        self.agent.close_trade(trade.id, exit_price)
