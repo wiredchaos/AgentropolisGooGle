@@ -78,6 +78,10 @@ class TradingAgent:
         self.tv_signals      = {}
         self._accumulator    = None
         self._ai_layer       = None
+        # OKX MCP connector — shared across all strategies
+        from connectors.okx_mcp import OKXMCPConnector
+        self.okx = OKXMCPConnector(config)
+        self.okx_prices: dict = {}   # populated once per cycle, shared by all strategies
 
     async def run(self):
         from strategies.polymarket_mispricing import PolymarketMispricingStrategy
@@ -105,6 +109,11 @@ class TradingAgent:
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, lambda: asyncio.create_task(self.stop()))
+
+        # Pass OKX connector to strategies that need it
+        for s in self.strategies:
+            if hasattr(s, "set_okx"):
+                s.set_okx(self.okx)
 
         self._running = True
         self.state    = AgentState.SCANNING
@@ -175,6 +184,11 @@ class TradingAgent:
     async def _run_cycle(self):
         self.state = AgentState.SCANNING
         try:
+            # One batch price fetch shared across all strategies this cycle
+            symbols = ["BTC-USDT", "ETH-USDT", "SOL-USDT", "AVAX-USDT", "LINK-USDT"]
+            self.okx_prices = await self.okx.get_prices_batch(symbols)
+            log.debug("OKX prices: %s", self.okx_prices)
+
             results = await asyncio.gather(
                 *[s.scan() for s in self.strategies if s.enabled],
                 return_exceptions=True,
