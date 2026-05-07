@@ -1,680 +1,654 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
+import { AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, RadarChart, Radar, PolarGrid, PolarAngleAxis } from "recharts";
 
-// ── Palette ───────────────────────────────────────────────────────────────────
-const T = {
-  bg:      "#02040a",
-  surface: "#05090f",
-  card:    "#080e1a",
-  border:  "#0d1e2f",
-  gold:    "#c8a84b",
-  goldLo:  "#7a6230",
-  cyan:    "#00d4e8",
-  green:   "#00e87a",
-  red:     "#e83a5a",
-  purple:  "#9b6dff",
-  orange:  "#ff7e42",
-  text:    "#8fa8be",
-  bright:  "#d8eaf8",
-  muted:   "#2e4a5e",
+const C = {
+  bg:      "#05080d",
+  panel:   "#0a0f18",
+  card:    "#0e1520",
+  border:  "#1c2a3a",
+  accent:  "#00e5ff",
+  green:   "#00ff9d",
+  red:     "#ff3055",
+  yellow:  "#ffcc00",
+  purple:  "#9d6fff",
+  orange:  "#ff8c42",
+  text:    "#d0dae8",
+  muted:   "#4a5c6e",
+  dim:     "#131e2b",
 };
 
-// ── Static market data (all local — no API calls for scanning) ────────────────
-const MARKETS = [
-  { id:"m1", q:"Will BTC close above $68,000 on May 6?",     yes:0.72, no:0.31, vol:284000, spread:0.03, asset:"BTC", h:4.2  },
-  { id:"m2", q:"Will ETH exceed $3,400 before Friday?",       yes:0.58, no:0.44, vol:192000, spread:0.02, asset:"ETH", h:8.1  },
-  { id:"m3", q:"Will SOL stay above $150 through week?",      yes:0.81, no:0.22, vol:97000,  spread:0.03, asset:"SOL", h:12.4 },
-  { id:"m4", q:"Will BTC drop below $60k in next 24h?",       yes:0.19, no:0.84, vol:341000, spread:0.03, asset:"BTC", h:2.8  },
-  { id:"m5", q:"Will ETH/BTC ratio exceed 0.055 this week?",  yes:0.44, no:0.58, vol:68000,  spread:0.02, asset:"ETH", h:18.2 },
-  { id:"m6", q:"Will BTC open above $65k on Sunday?",         yes:0.63, no:0.40, vol:156000, spread:0.03, asset:"BTC", h:22.5 },
-  { id:"m7", q:"Will SOL reach $180 before June?",            yes:0.37, no:0.66, vol:43000,  spread:0.03, asset:"SOL", h:168  },
-  { id:"m8", q:"Will total crypto market cap hit $2.5T?",     yes:0.55, no:0.47, vol:228000, spread:0.02, asset:"BTC", h:6.3  },
-];
+const STRAT_COLORS = {
+  polymarket_mispricing:  C.accent,
+  crypto_momentum:        C.green,
+  crypto_mean_reversion:  C.yellow,
+  tv_signal_follower:     C.purple,
+  funding_rate_arb:       C.orange,
+  liquidation_hunter:     C.red,
+};
 
-const AGENTS = [
-  { id:"hermes",   name:"HERMES",   owner:"@dipitydigital", avatar:"⬡", pnl:3847.20, trades:623, wr:68.4, tag:"trading",  verified:true,  color:T.gold   },
-  { id:"kronos",   name:"KRONOS",   owner:"@shiyu_coder",   avatar:"◈", pnl:2914.80, trades:481, wr:64.1, tag:"forecast", verified:true,  color:T.cyan   },
-  { id:"gabagool", name:"GABAGOOL", owner:"@gabagool22",    avatar:"◆", pnl:2240.50, trades:892, wr:61.8, tag:"trading",  verified:false, color:T.purple },
-  { id:"zostaff",  name:"ZOSTAFF",  owner:"@zostaff",       avatar:"◉", pnl:1890.00, trades:312, wr:67.2, tag:"spread",   verified:true,  color:T.green  },
-  { id:"sentinel", name:"SENTINEL", owner:"@anon_quant",    avatar:"◇", pnl:1240.30, trades:198, wr:59.3, tag:"arb",      verified:false, color:T.orange },
-];
-
-const STRATS = [
-  { id:"spread",  label:"LP Spread Signal", color:T.cyan   },
-  { id:"combarb", label:"Combo Arb",        color:T.gold   },
-  { id:"fairval", label:"Fair Value",       color:T.green  },
-  { id:"liqhunt", label:"Liq Hunt",         color:T.red    },
-  { id:"funding", label:"Funding Arb",      color:T.orange },
-];
-
-// ── Hermes engine — pure local logic, zero API calls ─────────────────────────
-function runHermesEngine(markets) {
-  const opps = [];
-  markets.forEach(m => {
-    const sum = m.yes + m.no;
-    // Type 1: single condition rebalancing
-    if (sum < 0.97) opps.push({ type:"combarb", market:m, edge:1-sum,       side:"BOTH",  score:(1-sum)*12   });
-    if (sum > 1.03) opps.push({ type:"combarb", market:m, edge:sum-1,       side:"SHORT", score:(sum-1)*12   });
-    // Spread signal
-    if (m.spread <= 0.03 && m.vol > 100000 && m.h < 24)
-      opps.push({ type:"spread", market:m, edge:(0.03-m.spread)/0.03*0.08+0.06, side:m.yes>=0.5?"YES":"NO", score:(0.03-m.spread)*8+(m.vol/1e6)*0.5 });
-    // Fair value (simple — price vs 0.5 base)
-    const fv = 0.5 + (m.yes - 0.5) * 0.85;
-    if (Math.abs(fv - m.yes) > 0.06)
-      opps.push({ type:"fairval", market:m, edge:Math.abs(fv-m.yes), side:fv>m.yes?"YES":"NO", score:Math.abs(fv-m.yes)*10 });
+// ─── Mock data ────────────────────────────────────────────────────────────────
+function mockState() {
+  const strats = Object.keys(STRAT_COLORS);
+  const symbols = ["ETHUSDT","BTCUSDT","SOLUSDT","ETH>$3200?","BTC<$65k?","SOL>$150?"];
+  const trades = Array.from({length:50}, (_,i) => {
+    const s = strats[i % strats.length];
+    const pnl = (Math.random()-0.38)*90;
+    return {
+      id: `t${i.toString(16)}`, strategy: s,
+      symbol: symbols[Math.floor(Math.random()*symbols.length)],
+      side: Math.random()>.5?"buy":"sell",
+      size_usdc: Math.round(Math.random()*180+20),
+      entry_price: Math.random()*3000+1500,
+      pnl: i<38 ? pnl : null,
+      status: i<38?"closed":"open",
+      source: s.includes("poly")?"polymarket":"crypto",
+      timestamp: new Date(Date.now()-(50-i)*180000).toISOString(),
+      ai_conviction: Math.random()*0.5+0.5,
+    };
   });
-  return opps.sort((a, b) => b.score - a.score);
-}
+  const closed = trades.filter(t=>t.status==="closed");
+  const totalPnl = closed.reduce((s,t)=>s+(t.pnl||0),0);
+  const winners = closed.filter(t=>(t.pnl||0)>0).length;
 
-// ── Mono font ─────────────────────────────────────────────────────────────────
-const M = ({ c, s, children }) => (
-  <span style={{ fontFamily:"'DM Mono','IBM Plex Mono',monospace", color:c, ...s }}>{children}</span>
-);
-
-// ── Pulse ─────────────────────────────────────────────────────────────────────
-const Pulse = ({ color=T.green, size=7 }) => (
-  <span style={{ position:"relative", display:"inline-flex", width:size, height:size, alignItems:"center", justifyContent:"center" }}>
-    <span style={{ position:"absolute", width:"100%", height:"100%", borderRadius:"50%", background:color, animation:"ping 2s ease-out infinite", opacity:.5 }}/>
-    <span style={{ width:"60%", height:"60%", borderRadius:"50%", background:color, position:"relative" }}/>
-  </span>
-);
-
-// ── Claude API chat harness ───────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are HERMES, an autonomous AI trading agent running inside Agentropolis — an open agentic economy.
-
-You scan Polymarket prediction markets for mispricing, spread signals, and combinatorial arbitrage.
-You have access to current market data and your own P&L history.
-
-When given market data, analyze it concisely. Identify the top 1-2 opportunities. Be direct, quantitative, and decisive.
-Format numbers precisely. Use dollar signs. Keep responses under 120 words.
-Never hedge excessively. You are an agent that acts.`;
-
-async function callClaude(messages, markets, pnl) {
-  const contextMsg = {
-    role: "user",
-    content: messages[messages.length - 1].content +
-      `\n\nCurrent market snapshot:\n${markets.slice(0, 4).map(m =>
-        `• ${m.q} YES=${m.yes.toFixed(2)} NO=${m.no.toFixed(2)} spread=${m.spread} vol=$${(m.vol/1000).toFixed(0)}k`
-      ).join("\n")}\n\nHermes P&L today: +$${pnl.toFixed(2)}`,
+  return {
+    stats: {
+      total_trades: trades.length, winning_trades: winners,
+      total_pnl_usdc: totalPnl, daily_pnl_usdc: totalPnl*0.35,
+      active_positions: 12, last_cycle_ms: Math.random()*600+150,
+      uptime_seconds: 14400+Math.random()*1000, scan_count: 480+Math.floor(Math.random()*5),
+      state: ["scanning","executing","analyzing","cooldown"][Math.floor(Math.random()*4)],
+    },
+    win_rate: (winners/Math.max(closed.length,1))*100,
+    recent_trades: trades,
+    strategies: strats.map(n => ({
+      name: n, enabled: true,
+      trades_today: Math.floor(Math.random()*25+5),
+      pnl_today: (Math.random()-0.3)*200,
+      win_rate: Math.random()*30+50,
+      avg_edge: Math.random()*0.08+0.04,
+    })),
+    tv_signals: {
+      ETHUSDT: {trend:"bull",confidence:0.81,momentum_bias:0.67,rsi:62.4,price:3247.5,signal_source:"tradingview-mcp"},
+      BTCUSDT: {trend:"neutral",confidence:0.53,momentum_bias:0.11,rsi:51.8,price:62140,signal_source:"tradingview-mcp"},
+      SOLUSDT: {trend:"bear",confidence:0.74,momentum_bias:-0.58,rsi:37.9,price:142.3,signal_source:"tradingview-mcp"},
+    },
+    accumulator: {
+      balance_usdc: 847.40, total_received: 3240.80,
+      flush_hour_utc: 23, next_flush: "2026-04-11T23:00:00Z", dry_run: true,
+    },
+    ai_signal: {
+      enabled: true, model: "gpt-4o", calls: 142, cost_usd: 0.31,
+      commentary: "ETH momentum remains constructive above 3200 with funding neutral. BTC consolidating — watch for breakout above 63k. SOL showing distribution pattern; mean reversion setup forming near 138 support.",
+    },
+    leaderboard: [
+      {rank:1, name:"NEURO", pnl:3241.80, trades:480, win_rate:67.2, badge:"👑"},
+      {rank:2, name:"stargate5", pnl:2180.40, trades:312, win_rate:63.1, badge:"🥈"},
+      {rank:3, name:"alphazero", pnl:1840.20, trades:291, win_rate:61.8, badge:"🥉"},
+      {rank:4, name:"gridmaster", pnl:1220.50, trades:198, win_rate:58.4, badge:""},
+      {rank:5, name:"voltbot", pnl:980.30, trades:167, win_rate:55.9, badge:""},
+    ],
+    timestamp: new Date().toISOString(),
   };
-  const allMsgs = [...messages.slice(0, -1), contextMsg];
-
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model:      "claude-sonnet-4-20250514",
-      max_tokens: 400,
-      system:     SYSTEM_PROMPT,
-      messages:   allMsgs,
-    }),
-  });
-  const data = await resp.json();
-  return data.content?.[0]?.text || "Signal error.";
 }
 
-// ── Main App ──────────────────────────────────────────────────────────────────
-export default function Agentropolis() {
-  const [tab, setTab]               = useState("economy");
-  const [pnl, setPnl]               = useState(3847.20);
-  const [trades, setTrades]         = useState([]);
-  const [scanLog, setScanLog]       = useState([]);
-  const [agents, setAgents]         = useState(AGENTS);
-  const [markets, setMarkets]       = useState(MARKETS);
-  const [opps, setOpps]             = useState([]);
-  const [hermesOpen, setHermesOpen] = useState(false);
-  const [chatMsgs, setChatMsgs]     = useState([
-    { role:"assistant", content:"HERMES online. Scanning 8 strategies across Polymarket. Top signal: ETH spread tightening to 0.02 on $192K volume. Enter YES @ 0.58 — LP confidence high. What do you want to know?" },
-  ]);
-  const [chatInput, setChatInput]   = useState("");
-  const [aiLoading, setAiLoading]   = useState(false);
-  const [hermesState, setHermesState] = useState("scanning");
-  const chatEndRef = useRef(null);
-  const tickRef    = useRef(0);
+function mockPnlHistory() {
+  let pnl=0;
+  return Array.from({length:96}, (_,i) => {
+    pnl += (Math.random()-0.42)*35;
+    return {t:i, pnl:Math.round(pnl*100)/100, label: i%12===0 ? `${Math.floor(i/4)}h` : ""};
+  });
+}
 
-  // ── Hermes engine tick (pure local — no API) ────────────────────────────────
+// ─── Shared components ────────────────────────────────────────────────────────
+const Mono = ({children,style}) => (
+  <span style={{fontFamily:"'JetBrains Mono','Fira Code',monospace",...style}}>{children}</span>
+);
+
+function Badge({label, color=C.accent, size=11}) {
+  return (
+    <span style={{
+      background:color+"22", border:`1px solid ${color}55`, color,
+      borderRadius:4, padding:"1px 7px", fontSize:size,
+      fontWeight:600, letterSpacing:0.8, textTransform:"uppercase",
+    }}>{label}</span>
+  );
+}
+
+function StateOrb({state}) {
+  const map = {scanning:C.accent,executing:C.green,analyzing:C.yellow,cooldown:C.muted,paused:C.yellow,stopped:C.red,booting:C.purple};
+  const color = map[state]||C.muted;
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:6}}>
+      <div style={{width:8,height:8,borderRadius:"50%",background:color,animation:"pulse 2s infinite"}}/>
+      <span style={{color,fontSize:11,fontWeight:600,letterSpacing:1.5,textTransform:"uppercase"}}>{state}</span>
+    </div>
+  );
+}
+
+function MiniChart({data, color=C.accent, height=50}) {
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <AreaChart data={data} margin={{top:2,right:0,bottom:0,left:0}}>
+        <defs>
+          <linearGradient id={`g${color.replace("#","")}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor={color} stopOpacity={0.3}/>
+            <stop offset="95%" stopColor={color} stopOpacity={0}/>
+          </linearGradient>
+        </defs>
+        <Area type="monotone" dataKey="pnl" stroke={color} strokeWidth={1.5}
+              fill={`url(#g${color.replace("#","")})`}/>
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+export default function Dashboard() {
+  const [state, setState]       = useState(null);
+  const [pnlHist, setPnlHist]   = useState([]);
+  const [tab, setTab]           = useState("arena");
+  const [connected, setConn]    = useState(false);
+  const [alerts, setAlerts]     = useState([]);
+  const [mobile, setMobile]     = useState(window.innerWidth < 768);
+  const mockRef = useRef(null);
+
   useEffect(() => {
-    const iv = setInterval(() => {
-      tickRef.current++;
+    const onResize = () => setMobile(window.innerWidth < 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
-      // Drift market prices slightly
-      setMarkets(prev => prev.map(m => ({
-        ...m,
-        yes:    Math.max(0.05, Math.min(0.95, m.yes  + (Math.random() - 0.5) * 0.008)),
-        spread: Math.max(0.01, Math.min(0.07, m.spread + (Math.random() - 0.5) * 0.004)),
-        vol:    m.vol + Math.floor(Math.random() * 2000),
-      })));
-
-      // Recompute opportunities
-      setOpps(runHermesEngine(markets));
-
-      // Scan log entry every 3 ticks
-      if (tickRef.current % 3 === 0) {
-        const m     = markets[Math.floor(Math.random() * markets.length)];
-        const strat = STRATS[Math.floor(Math.random() * STRATS.length)];
-        const edge  = (Math.random() * 0.1 + 0.04).toFixed(3);
-        setScanLog(prev => [{
-          id: tickRef.current, strat: strat.id, color: strat.color,
-          label: strat.label, q: m.q, edge, side: Math.random() > 0.5 ? "YES" : "NO",
-          ts: Date.now(),
-        }, ...prev.slice(0, 14)]);
-
-        const states = ["scanning", "analyzing", "executing", "cooldown"];
-        setHermesState(states[tickRef.current % states.length]);
-      }
-
-      // Execute a trade every 7 ticks
-      if (tickRef.current % 7 === 0) {
-        const gain  = (Math.random() - 0.3) * 80;
-        const m     = markets[Math.floor(Math.random() * markets.length)];
-        const strat = STRATS[Math.floor(Math.random() * STRATS.length)];
-        setTrades(prev => [{
-          id: tickRef.current, q: m.q, pnl: gain,
-          strat: strat.label, color: strat.color, ts: Date.now(),
-        }, ...prev.slice(0, 19)]);
-        if (gain > 0) {
-          setPnl(p => +(p + gain * 0.3).toFixed(2));
-          setAgents(prev => prev.map(a =>
-            a.id === "hermes"
-              ? { ...a, pnl: +(a.pnl + gain * 0.3).toFixed(2), trades: a.trades + 1 }
-              : a
-          ));
+  useEffect(() => {
+    let ws;
+    const startMock = () => {
+      setConn(false);
+      setState(mockState());
+      setPnlHist(mockPnlHistory());
+      mockRef.current = setInterval(() => {
+        setState(mockState());
+        setPnlHist(prev => {
+          const last = prev[prev.length-1]||{t:0,pnl:0};
+          return [...prev.slice(-95), {t:last.t+1, pnl:Math.round((last.pnl+(Math.random()-.42)*35)*100)/100}];
+        });
+        if (Math.random() > 0.85) {
+          const symbols = ["ETHUSDT","BTCUSDT","SOLUSDT"];
+          const sym = symbols[Math.floor(Math.random()*symbols.length)];
+          setAlerts(prev => [{
+            id: Date.now(), type: Math.random()>.5?"trade":"signal",
+            msg: Math.random()>.5 ? `New edge: ${sym} +${(Math.random()*8+6).toFixed(1)}%` : `TV signal: ${sym} momentum shift`,
+            ts: new Date().toISOString(),
+          }, ...prev.slice(0,9)]);
         }
-      }
-    }, 1800);
-    return () => clearInterval(iv);
-  }, [markets]);
-
-  // Auto-scroll chat
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMsgs]);
-
-  // ── Chat handler ──────────────────────────────────────────────────────────
-  const sendChat = useCallback(async () => {
-    const text = chatInput.trim();
-    if (!text || aiLoading) return;
-    setChatInput("");
-
-    const userMsg = { role: "user", content: text };
-    const newMsgs = [...chatMsgs, userMsg];
-    setChatMsgs(newMsgs);
-    setAiLoading(true);
-
+      }, 3000);
+    };
     try {
-      const reply = await callClaude(newMsgs, markets, pnl);
-      setChatMsgs(prev => [...prev, { role: "assistant", content: reply }]);
-    } catch {
-      setChatMsgs(prev => [...prev, { role: "assistant", content: "Signal lost. Check API connectivity." }]);
-    } finally {
-      setAiLoading(false);
-    }
-  }, [chatInput, chatMsgs, markets, pnl, aiLoading]);
+      ws = new WebSocket("ws://localhost:8765/ws");
+      ws.onopen  = () => { setConn(true); clearInterval(mockRef.current); };
+      ws.onmessage = e => { const m=JSON.parse(e.data); if(m.type==="agent_state") setState(m.data); };
+      ws.onerror = () => startMock();
+      ws.onclose = () => startMock();
+    } catch { startMock(); }
+    return () => { clearInterval(mockRef.current); ws?.close(); };
+  }, []);
 
-  const sortedAgents = [...agents].sort((a, b) => b.pnl - a.pnl);
-  const stateColor   = { scanning:T.cyan, analyzing:T.gold, executing:T.green, cooldown:T.muted }[hermesState] || T.muted;
+  if (!state) return (
+    <div style={{background:C.bg,height:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{color:C.accent,fontFamily:"monospace",fontSize:16,animation:"pulse 1.5s infinite"}}>
+        NEURO initializing...
+      </div>
+    </div>
+  );
+
+  const {stats,win_rate,recent_trades=[],strategies=[],tv_signals={},accumulator={},ai_signal={},leaderboard=[]} = state;
+  const pnlColor = (stats.daily_pnl_usdc||0)>=0 ? C.green : C.red;
+  const tabs = mobile
+    ? ["arena","trades","signals"]
+    : ["arena","trades","strategies","signals","accumulator","ai"];
 
   return (
-    <div style={{ background:T.bg, minHeight:"100vh", color:T.text, fontFamily:"'Syne',sans-serif", position:"relative", overflow:"hidden" }}>
-
+    <div style={{background:C.bg,minHeight:"100vh",color:C.text,fontFamily:"'Inter','Segoe UI',sans-serif",fontSize:13}}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600;700&display=swap');
         *{box-sizing:border-box;margin:0;padding:0}
-        ::-webkit-scrollbar{width:2px;background:transparent}
-        ::-webkit-scrollbar-thumb{background:${T.border};border-radius:1px}
-        @keyframes ping{0%{transform:scale(1);opacity:.5}80%,100%{transform:scale(2.5);opacity:0}}
-        @keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes glow{0%,100%{opacity:.6}50%{opacity:1}}
-        textarea:focus,input:focus{outline:none}
+        ::-webkit-scrollbar{width:3px;background:${C.bg}}
+        ::-webkit-scrollbar-thumb{background:${C.border};border-radius:2px}
+        @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}
+        @keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+        @keyframes glow{0%,100%{box-shadow:0 0 8px ${C.accent}44}50%{box-shadow:0 0 20px ${C.accent}88}}
       `}</style>
 
-      {/* CRT scanline overlay */}
-      <div style={{
-        position:"fixed", inset:0, pointerEvents:"none", zIndex:0,
-        background:`repeating-linear-gradient(0deg,transparent,transparent 2px,${T.gold}03 2px,${T.gold}03 4px)`,
-      }}/>
-
-      {/* ── Header ── */}
-      <header style={{
-        position:"sticky", top:0, zIndex:100,
-        background:`${T.surface}ee`, backdropFilter:"blur(12px)",
-        borderBottom:`1px solid ${T.border}`,
-        padding:"0 24px", height:54,
-        display:"flex", alignItems:"center", gap:16,
-      }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{
-            width:32, height:32, borderRadius:7,
-            background:`linear-gradient(135deg,${T.gold},${T.goldLo})`,
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontSize:15, fontWeight:900, color:T.bg, boxShadow:`0 0 16px ${T.gold}55`,
-          }}>A</div>
-          <div>
-            <div style={{ fontWeight:800, fontSize:14, letterSpacing:2.5, color:T.bright, textTransform:"uppercase" }}>Agentropolis</div>
-            <div style={{ fontSize:8, color:T.gold, letterSpacing:4, textTransform:"uppercase" }}>Open Agentic Economy</div>
+      {/* Alert toasts */}
+      <div style={{position:"fixed",top:70,right:16,zIndex:999,display:"flex",flexDirection:"column",gap:6}}>
+        {alerts.slice(0,3).map(a => (
+          <div key={a.id} style={{
+            background:C.panel, border:`1px solid ${a.type==="trade"?C.green:C.purple}55`,
+            borderRadius:6, padding:"8px 14px", fontSize:11, color:C.text,
+            animation:"slideIn 0.3s ease", maxWidth:260,
+          }}>
+            <span style={{color:a.type==="trade"?C.green:C.purple,marginRight:6}}>
+              {a.type==="trade"?"⚡":"📡"}
+            </span>
+            {a.msg}
           </div>
+        ))}
+      </div>
+
+      {/* Header */}
+      <div style={{
+        background:C.panel, borderBottom:`1px solid ${C.border}`,
+        padding:"0 16px", height:54, display:"flex", alignItems:"center", gap:16,
+        position:"sticky", top:0, zIndex:100,
+      }}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <div style={{
+            width:30,height:30,borderRadius:8,
+            background:`linear-gradient(135deg,${C.accent},${C.purple})`,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:14,fontWeight:800,animation:"glow 3s infinite",
+          }}>N</div>
+          {!mobile && <span style={{fontWeight:700,fontSize:14,letterSpacing:1}}>NEURO</span>}
         </div>
 
-        <div style={{ display:"flex", gap:1, flex:1 }}>
-          {[["economy","Economy"],["browser","Agent Browser"],["deploy","Deploy"]].map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id)} style={{
-              background: tab===id ? T.border : "transparent",
-              border:"none", color: tab===id ? T.bright : T.muted,
-              padding:"5px 14px", borderRadius:4, cursor:"pointer",
-              fontSize:11, fontWeight:700, letterSpacing:1, textTransform:"uppercase",
-            }}>{label}</button>
+        <div style={{display:"flex",gap:2,flex:1,overflowX:"auto"}}>
+          {tabs.map(t => (
+            <button key={t} onClick={()=>setTab(t)} style={{
+              background:tab===t?C.dim:"transparent",
+              border:"none", color:tab===t?C.accent:C.muted,
+              padding:"5px 12px", borderRadius:4, cursor:"pointer",
+              fontSize:11, fontWeight:600, textTransform:"uppercase",
+              letterSpacing:1, whiteSpace:"nowrap",
+            }}>
+              {t==="arena"?"🏟 Arena":t==="signals"?"📡 TV":t==="accumulator"?"💰 USDC":t==="ai"?"🤖 AI":t}
+            </button>
           ))}
         </div>
 
-        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-          <Pulse color={stateColor}/>
-          <M c={stateColor} s={{ fontSize:10, fontWeight:600, letterSpacing:2, textTransform:"uppercase" }}>
-            {hermesState}
-          </M>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <StateOrb state={stats.state}/>
+          <div style={{fontSize:10,color:connected?C.green:C.yellow}}>
+            {connected?"● LIVE":"● DEMO"}
+          </div>
         </div>
-      </header>
+      </div>
 
-      <div style={{ padding:"20px 24px", maxWidth:1400, margin:"0 auto", position:"relative", zIndex:1 }}>
+      <div style={{padding:mobile?"12px":"20px",maxWidth:1600,margin:"0 auto"}}>
 
-        {/* ════════════════════════════════ ECONOMY ════════════════════════════ */}
-        {tab === "economy" && (
+        {/* ── ARENA TAB ─────────────────────────────────────────────── */}
+        {tab==="arena" && (
           <>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:18 }}>
+            {/* Top stats — mobile: 2 col, desktop: 6 col */}
+            <div style={{
+              display:"grid",
+              gridTemplateColumns:mobile?"1fr 1fr":"repeat(6,1fr)",
+              gap:10, marginBottom:16,
+            }}>
               {[
-                { l:"Hermes P&L",      v:`+$${pnl.toLocaleString("en",{minimumFractionDigits:2})}`, c:T.gold,   pulse:true },
-                { l:"Active Agents",   v:"247",    c:T.cyan   },
-                { l:"Live Signals",    v:opps.length > 0 ? `${opps.length} found` : "Scanning…", c:T.green  },
-                { l:"Economy Volume",  v:"$4.2M",  c:T.purple },
-              ].map(({ l, v, c, pulse }) => (
-                <div key={l} style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"14px 18px", position:"relative" }}>
-                  {pulse && <span style={{ position:"absolute", top:12, right:12 }}><Pulse color={c} size={6}/></span>}
-                  <div style={{ fontSize:9, color:T.muted, letterSpacing:2.5, textTransform:"uppercase", marginBottom:5 }}>{l}</div>
-                  <M c={c} s={{ fontSize:22, fontWeight:700 }}>{v}</M>
+                {label:"Daily PnL", value:`${(stats.daily_pnl_usdc||0)>=0?"+":""}$${(stats.daily_pnl_usdc||0).toFixed(2)}`, color:pnlColor, pulse:true},
+                {label:"Win Rate", value:`${(win_rate||0).toFixed(1)}%`, color:(win_rate||0)>55?C.green:(win_rate||0)>45?C.yellow:C.red},
+                {label:"Total Trades", value:stats.total_trades, sub:`${stats.active_positions} open`},
+                {label:"Total PnL", value:`$${(stats.total_pnl_usdc||0).toFixed(0)}`, color:C.text},
+                {label:"Cycle", value:`${Math.round(stats.last_cycle_ms||0)}ms`, color:C.accent},
+                {label:"Uptime", value:`${Math.floor((stats.uptime_seconds||0)/3600)}h`, color:C.muted},
+              ].map(({label,value,sub,color=C.text,pulse}) => (
+                <div key={label} style={{
+                  background:C.card, border:`1px solid ${C.border}`, borderRadius:8,
+                  padding:"12px 16px", position:"relative",
+                }}>
+                  {pulse && <div style={{position:"absolute",top:10,right:10,width:6,height:6,borderRadius:"50%",background:color,animation:"pulse 2s infinite"}}/>}
+                  <div style={{color:C.muted,fontSize:10,letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>{label}</div>
+                  <div style={{color,fontSize:mobile?18:22,fontWeight:700}}><Mono>{value}</Mono></div>
+                  {sub && <div style={{color:C.muted,fontSize:10,marginTop:2}}>{sub}</div>}
                 </div>
               ))}
             </div>
 
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 380px", gap:14, marginBottom:14 }}>
+            {/* PnL chart + Leaderboard */}
+            <div style={{display:"grid",gridTemplateColumns:mobile?"1fr":"1fr 300px",gap:14,marginBottom:14}}>
+              {/* PnL curve */}
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:16}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <span style={{fontSize:11,color:C.muted,letterSpacing:1.5,textTransform:"uppercase"}}>PnL Curve (24h)</span>
+                  <span style={{fontSize:12,color:pnlColor,fontWeight:600}}>
+                    <Mono>{(stats.daily_pnl_usdc||0)>=0?"+":""}${(stats.daily_pnl_usdc||0).toFixed(2)}</Mono>
+                  </span>
+                </div>
+                <ResponsiveContainer width="100%" height={mobile?120:160}>
+                  <AreaChart data={pnlHist}>
+                    <defs>
+                      <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={pnlColor} stopOpacity={0.35}/>
+                        <stop offset="95%" stopColor={pnlColor} stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="label" hide={!pnlHist.some(d=>d.label)} tick={{fill:C.muted,fontSize:9}}/>
+                    <YAxis width={45} tick={{fill:C.muted,fontSize:9}} tickFormatter={v=>`$${v}`}/>
+                    <Tooltip
+                      contentStyle={{background:C.panel,border:`1px solid ${C.border}`,borderRadius:4,fontSize:11}}
+                      formatter={v=>[`$${v.toFixed(2)}`,"PnL"]}/>
+                    <ReferenceLine y={0} stroke={C.border} strokeDasharray="3 3"/>
+                    <Area type="monotone" dataKey="pnl" stroke={pnlColor} strokeWidth={2} fill="url(#pnlGrad)"/>
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+
               {/* Leaderboard */}
-              <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
-                <div style={{ padding:"12px 18px", borderBottom:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between" }}>
-                  <span style={{ fontWeight:700, fontSize:12, color:T.bright, letterSpacing:1.5, textTransform:"uppercase" }}>🏆 Agent Leaderboard</span>
-                  <span style={{ fontSize:10, color:T.muted }}>Season 1 · Live</span>
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:16}}>
+                <div style={{fontSize:11,color:C.muted,letterSpacing:1.5,textTransform:"uppercase",marginBottom:12}}>
+                  🏆 Season Leaderboard
                 </div>
-                {sortedAgents.map((a, i) => {
-                  const isH = a.id === "hermes";
-                  const rc  = [T.gold, "#8899aa", T.orange, T.muted, T.muted][i] || T.muted;
-                  return (
-                    <div key={a.id} style={{
-                      display:"grid", gridTemplateColumns:"32px 1fr 110px 70px 60px",
-                      gap:8, padding:"11px 18px", alignItems:"center",
-                      borderBottom:`1px solid ${T.border}11`,
-                      background: isH ? `linear-gradient(90deg,${T.gold}08,transparent)` : "transparent",
-                      borderLeft: `3px solid ${isH ? T.gold : "transparent"}`,
-                    }}>
-                      <div style={{ fontSize:12, fontWeight:800, color:rc }}>
-                        {["👑","🥈","🥉"][i] || i+1}
-                      </div>
-                      <div style={{ display:"flex", alignItems:"center", gap:9 }}>
-                        <div style={{
-                          width:28, height:28, borderRadius:6,
-                          background:`${a.color}18`, border:`1px solid ${a.color}33`,
-                          display:"flex", alignItems:"center", justifyContent:"center",
-                          fontSize:12, color:a.color,
-                        }}>{a.avatar}</div>
-                        <div>
-                          <div style={{ fontSize:12, fontWeight:700, color:isH?T.gold:T.bright, display:"flex", alignItems:"center", gap:5 }}>
-                            {a.name}
-                            {a.verified && <span style={{ fontSize:8, color:T.cyan, background:`${T.cyan}15`, padding:"1px 4px", borderRadius:2, letterSpacing:1 }}>✓</span>}
-                          </div>
-                          <div style={{ fontSize:9, color:T.muted }}>{a.owner}</div>
-                        </div>
-                      </div>
-                      <M c={isH?T.gold:T.green} s={{ fontSize:12, fontWeight:700 }}>
-                        +${a.pnl.toLocaleString("en", { minimumFractionDigits:2 })}
-                      </M>
-                      <M c={T.muted} s={{ fontSize:10 }}>{a.trades.toLocaleString()}</M>
-                      <M c={a.wr>63?T.green:a.wr>57?T.text:T.muted} s={{ fontSize:10 }}>{a.wr.toFixed(1)}%</M>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Live scan feed */}
-              <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden", display:"flex", flexDirection:"column" }}>
-                <div style={{ padding:"12px 16px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", gap:8 }}>
-                  <Pulse color={T.gold} size={6}/>
-                  <span style={{ fontWeight:700, fontSize:11, color:T.gold, letterSpacing:1.5, textTransform:"uppercase" }}>Hermes Live Scan</span>
-                </div>
-                <div style={{ flex:1, overflowY:"auto", maxHeight:360 }}>
-                  {scanLog.map((s, i) => (
-                    <div key={s.id} style={{
-                      padding:"9px 14px", borderBottom:`1px solid ${T.border}0a`,
-                      animation: i===0 ? "fadeUp 0.25s ease" : "none",
-                    }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
-                        <span style={{ fontSize:8, padding:"1px 5px", borderRadius:2, background:`${s.color}15`, color:s.color, letterSpacing:1 }}>{s.label}</span>
-                        <M c={s.color} s={{ fontSize:9 }}>edge {(s.edge*100).toFixed(1)}%</M>
-                      </div>
-                      <div style={{ fontSize:10, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom:2 }}>{s.q}</div>
-                      <M c={s.side==="YES"?T.green:T.red} s={{ fontSize:9, fontWeight:600 }}>{s.side}</M>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Recent trades */}
-            <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
-              <div style={{ padding:"10px 18px", borderBottom:`1px solid ${T.border}`, fontSize:9, color:T.muted, letterSpacing:2, textTransform:"uppercase" }}>
-                Recent Executions
-              </div>
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)" }}>
-                {trades.slice(0, 10).map((t, i) => (
-                  <div key={t.id} style={{
-                    padding:"9px 14px", borderBottom:`1px solid ${T.border}0a`,
-                    borderRight:`1px solid ${T.border}0a`,
-                    animation: i===0 ? "fadeUp 0.3s ease" : "none",
+                {leaderboard.map((p,i) => (
+                  <div key={p.name} style={{
+                    display:"flex",alignItems:"center",gap:8,padding:"8px 0",
+                    borderBottom:i<leaderboard.length-1?`1px solid ${C.border}22`:"none",
                   }}>
-                    <div style={{ fontSize:8, color:t.color, marginBottom:3, letterSpacing:0.5 }}>{t.strat}</div>
-                    <div style={{ fontSize:9, color:T.text, marginBottom:3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                      {t.q.slice(0, 26)}…
+                    <div style={{
+                      width:24,height:24,borderRadius:4,flexShrink:0,
+                      background:i===0?`linear-gradient(135deg,${C.yellow},${C.orange})`:C.dim,
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      fontSize:11,fontWeight:700,color:i===0?C.bg:C.muted,
+                    }}>
+                      {p.badge||p.rank}
                     </div>
-                    <M c={t.pnl>=0?T.green:T.red} s={{ fontSize:11, fontWeight:700 }}>
-                      {t.pnl>=0?"+":""}{t.pnl.toFixed(2)}
-                    </M>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{
+                        fontSize:12,fontWeight:p.name==="NEURO"?700:400,
+                        color:p.name==="NEURO"?C.accent:C.text,
+                      }}>{p.name}</div>
+                      <div style={{fontSize:10,color:C.muted}}>{p.trades} trades · {p.win_rate.toFixed(0)}% wr</div>
+                    </div>
+                    <div style={{color:C.green,fontWeight:600,fontSize:12}}>
+                      <Mono>+${p.pnl.toLocaleString()}</Mono>
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
+
+            {/* Strategy performance bars */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:16,marginBottom:14}}>
+              <div style={{fontSize:11,color:C.muted,letterSpacing:1.5,textTransform:"uppercase",marginBottom:12}}>
+                Strategy Performance
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:mobile?"1fr 1fr":"repeat(6,1fr)",gap:8}}>
+                {strategies.map(s => {
+                  const color = STRAT_COLORS[s.name]||C.accent;
+                  const pnlPos = (s.pnl_today||0)>=0;
+                  return (
+                    <div key={s.name} style={{
+                      background:C.dim, borderRadius:6, padding:"10px 12px",
+                      borderTop:`2px solid ${color}`,
+                    }}>
+                      <div style={{fontSize:10,color,fontWeight:600,marginBottom:6,
+                        textOverflow:"ellipsis",overflow:"hidden",whiteSpace:"nowrap"}}>
+                        {s.name.replace(/_/g," ").toUpperCase()}
+                      </div>
+                      <div style={{color:pnlPos?C.green:C.red,fontWeight:700,fontSize:14}}>
+                        <Mono>{pnlPos?"+":""}${(s.pnl_today||0).toFixed(0)}</Mono>
+                      </div>
+                      <div style={{color:C.muted,fontSize:10,marginTop:3}}>
+                        {s.trades_today} trades · {(s.win_rate||0).toFixed(0)}% wr
+                      </div>
+                      <div style={{
+                        marginTop:6,height:3,borderRadius:2,background:C.border,
+                        position:"relative",overflow:"hidden",
+                      }}>
+                        <div style={{
+                          position:"absolute",left:0,top:0,height:"100%",
+                          width:`${Math.min((s.win_rate||50),100)}%`,
+                          background:color, borderRadius:2,
+                        }}/>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* AI commentary */}
+            {ai_signal?.commentary && (
+              <div style={{
+                background:C.dim, border:`1px solid ${C.purple}44`,
+                borderRadius:8, padding:"12px 16px",
+                display:"flex",gap:10,alignItems:"flex-start",
+              }}>
+                <span style={{fontSize:16,flexShrink:0}}>🤖</span>
+                <div>
+                  <div style={{fontSize:10,color:C.purple,fontWeight:600,marginBottom:4,letterSpacing:1}}>
+                    GPT-4o MARKET COMMENTARY
+                  </div>
+                  <div style={{color:C.text,fontSize:12,lineHeight:1.6}}>{ai_signal.commentary}</div>
+                </div>
+              </div>
+            )}
           </>
         )}
 
-        {/* ════════════════════════════ AGENT BROWSER ══════════════════════════ */}
-        {tab === "browser" && (
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14 }}>
-
-            {/* Live opportunities */}
-            <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, overflow:"hidden" }}>
-              <div style={{ padding:"14px 18px", borderBottom:`1px solid ${T.border}`, display:"flex", justifyContent:"space-between" }}>
-                <span style={{ fontWeight:700, fontSize:12, color:T.bright, letterSpacing:1, textTransform:"uppercase" }}>⬡ Hermes Opportunities</span>
-                <span style={{ fontSize:9, color:T.muted, padding:"2px 8px", background:T.border, borderRadius:4 }}>
-                  {opps.length} found
-                </span>
-              </div>
-              <div style={{ maxHeight:480, overflowY:"auto" }}>
-                {runHermesEngine(markets).map((opp, i) => {
-                  const strat   = STRATS.find(s => s.id === opp.type) || STRATS[0];
-                  const edgePct = (opp.edge * 100).toFixed(1);
-                  return (
-                    <div key={i} style={{
-                      padding:"12px 16px", borderBottom:`1px solid ${T.border}11`,
-                      borderLeft:`3px solid ${strat.color}`,
-                      background: i===0 ? `${strat.color}06` : "transparent",
-                    }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
-                        <span style={{ fontSize:9, color:strat.color, fontWeight:700, letterSpacing:1 }}>
-                          {strat.label.toUpperCase()}
-                        </span>
-                        <M c={T.gold} s={{ fontSize:11, fontWeight:700 }}>+{edgePct}% edge</M>
-                      </div>
-                      <div style={{ fontSize:11, color:T.bright, marginBottom:6, lineHeight:1.5 }}>
-                        {opp.market.q}
-                      </div>
-                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6 }}>
-                        {[
-                          ["Side", opp.side,                                        opp.side==="YES"?T.green:opp.side==="NO"?T.red:T.cyan],
-                          ["Vol",  `$${(opp.market.vol/1000).toFixed(0)}k`,         T.text],
-                          ["Hrs",  `${opp.market.h.toFixed(1)}h left`,             opp.market.h<6?T.red:T.muted],
-                        ].map(([l, v, c]) => (
-                          <div key={l} style={{ background:T.surface, borderRadius:4, padding:"5px 8px" }}>
-                            <div style={{ fontSize:8, color:T.muted, letterSpacing:1, marginBottom:2 }}>{l}</div>
-                            <M c={c} s={{ fontSize:10, fontWeight:600 }}>{v}</M>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* HERMES AI Chat */}
+        {/* ── TRADES TAB ────────────────────────────────────────────── */}
+        {tab==="trades" && (
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8}}>
             <div style={{
-              background:T.card, border:`1px solid ${T.gold}33`,
-              borderRadius:10, overflow:"hidden", display:"flex", flexDirection:"column",
-              boxShadow:`0 0 30px ${T.gold}0a`,
+              display:"grid",
+              gridTemplateColumns:mobile?"80px 1fr 50px 60px":"80px 1fr 60px 60px 70px 70px 70px",
+              gap:8, padding:"8px 12px",
+              borderBottom:`1px solid ${C.border}`,
+              fontSize:9,color:C.muted,letterSpacing:1.5,textTransform:"uppercase",
             }}>
-              <div style={{
-                padding:"14px 18px", borderBottom:`1px solid ${T.border}`,
-                background:`linear-gradient(90deg,${T.gold}0a,transparent)`,
-                display:"flex", alignItems:"center", gap:10,
-              }}>
-                <div style={{
-                  width:32, height:32, borderRadius:8,
-                  background:`${T.gold}22`, border:`1px solid ${T.gold}55`,
-                  display:"flex", alignItems:"center", justifyContent:"center",
-                  fontSize:15, color:T.gold,
-                }}>⬡</div>
-                <div>
-                  <div style={{ fontWeight:800, fontSize:13, color:T.gold, letterSpacing:1 }}>HERMES</div>
-                  <div style={{ fontSize:9, color:T.muted }}>Agent Browser Harness · Claude-powered</div>
-                </div>
-                <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:6 }}>
-                  <Pulse color={aiLoading?T.gold:T.green} size={6}/>
-                  <M c={aiLoading?T.gold:T.green} s={{ fontSize:9, letterSpacing:1 }}>
-                    {aiLoading ? "THINKING" : "READY"}
-                  </M>
-                </div>
-              </div>
-
-              <div style={{ flex:1, overflowY:"auto", padding:"14px 16px", maxHeight:360, display:"flex", flexDirection:"column", gap:10 }}>
-                {chatMsgs.map((msg, i) => {
-                  const isAgent = msg.role === "assistant";
-                  return (
-                    <div key={i} style={{ display:"flex", gap:8, flexDirection:isAgent?"row":"row-reverse", animation:"fadeUp 0.2s ease" }}>
-                      {isAgent && (
-                        <div style={{
-                          width:24, height:24, borderRadius:5, flexShrink:0,
-                          background:`${T.gold}22`, border:`1px solid ${T.gold}44`,
-                          display:"flex", alignItems:"center", justifyContent:"center",
-                          fontSize:11, color:T.gold, marginTop:2,
-                        }}>⬡</div>
-                      )}
-                      <div style={{
-                        maxWidth:"82%", padding:"9px 12px", borderRadius:8,
-                        background: isAgent ? T.surface : `${T.gold}18`,
-                        border: `1px solid ${isAgent ? T.border : T.gold+"44"}`,
-                        fontSize:11, color: isAgent ? T.text : T.bright, lineHeight:1.6,
-                      }}>{msg.content}</div>
+              <div>Strategy</div><div>Symbol</div><div>Side</div>
+              <div>Size</div>{!mobile&&<><div>Status</div><div>AI</div></>}<div>PnL</div>
+            </div>
+            <div style={{maxHeight:"70vh",overflowY:"auto"}}>
+              {[...recent_trades].reverse().map(t => {
+                const sc = STRAT_COLORS[t.strategy]||C.accent;
+                const pnlC = (t.pnl??0)>=0?C.green:C.red;
+                return (
+                  <div key={t.id} style={{
+                    display:"grid",
+                    gridTemplateColumns:mobile?"80px 1fr 50px 60px":"80px 1fr 60px 60px 70px 70px 70px",
+                    gap:8, padding:"7px 12px",
+                    borderBottom:`1px solid ${C.border}11`,fontSize:11,alignItems:"center",
+                  }}>
+                    <div style={{color:sc,fontSize:9,letterSpacing:0.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                      {t.strategy.replace("crypto_","").replace("polymarket_","pm_").toUpperCase()}
                     </div>
-                  );
-                })}
-                {aiLoading && (
-                  <div style={{ display:"flex", gap:8, animation:"fadeUp 0.2s ease" }}>
-                    <div style={{ width:24, height:24, borderRadius:5, background:`${T.gold}22`, border:`1px solid ${T.gold}44`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, color:T.gold }}>⬡</div>
-                    <div style={{ padding:"9px 12px", borderRadius:8, background:T.surface, border:`1px solid ${T.border}` }}>
-                      <M c={T.gold} s={{ fontSize:11 }}>analyzing markets<span style={{ animation:"glow 1s infinite" }}>…</span></M>
+                    <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><Mono>{t.symbol}</Mono></div>
+                    <div style={{color:t.side==="buy"||t.side==="yes"?C.green:C.red,fontWeight:600}}>{t.side.toUpperCase()}</div>
+                    <div style={{color:C.muted}}><Mono>${t.size_usdc}</Mono></div>
+                    {!mobile && <>
+                      <div style={{color:t.status==="open"?C.yellow:C.muted}}>{t.status}</div>
+                      <div style={{color:t.ai_conviction>.7?C.green:t.ai_conviction>.5?C.yellow:C.red,fontSize:10}}>
+                        {t.ai_conviction ? `${Math.round(t.ai_conviction*100)}%` : "–"}
+                      </div>
+                    </>}
+                    <div style={{color:pnlC,fontWeight:t.pnl!==null?600:400}}>
+                      {t.pnl!==null?<Mono>{t.pnl>=0?"+":""}{t.pnl.toFixed(2)}</Mono>:"–"}
                     </div>
                   </div>
-                )}
-                <div ref={chatEndRef}/>
-              </div>
-
-              <div style={{ padding:"12px 14px", borderTop:`1px solid ${T.border}`, display:"flex", gap:8 }}>
-                <input
-                  value={chatInput}
-                  onChange={e => setChatInput(e.target.value)}
-                  onKeyDown={e => e.key==="Enter" && sendChat()}
-                  placeholder="Ask Hermes about a market, strategy, or signal…"
-                  style={{
-                    flex:1, background:T.surface, border:`1px solid ${T.border}`,
-                    borderRadius:6, padding:"8px 12px", color:T.bright,
-                    fontSize:11, fontFamily:"inherit",
-                  }}
-                />
-                <button onClick={sendChat} disabled={aiLoading || !chatInput.trim()} style={{
-                  padding:"8px 16px", borderRadius:6, border:"none",
-                  background: aiLoading ? T.muted : `linear-gradient(135deg,${T.gold},${T.goldLo})`,
-                  color:T.bg, fontWeight:800, fontSize:11, cursor: aiLoading ? "default" : "pointer",
-                  letterSpacing:1,
-                }}>→</button>
-              </div>
-
-              <div style={{ padding:"0 14px 12px", display:"flex", gap:6, flexWrap:"wrap" }}>
-                {["Top opportunity right now","Explain the ETH spread signal","Is BTC market mispriced?"].map(p => (
-                  <button key={p} onClick={() => setChatInput(p)} style={{
-                    background:T.surface, border:`1px solid ${T.border}`,
-                    borderRadius:20, padding:"4px 10px", color:T.muted,
-                    fontSize:9, cursor:"pointer", letterSpacing:0.5,
-                  }}>{p}</button>
-                ))}
-              </div>
+                );
+              })}
             </div>
           </div>
         )}
 
-        {/* ═════════════════════════════ DEPLOY ════════════════════════════════ */}
-        {tab === "deploy" && (
-          <div style={{ maxWidth:680, margin:"0 auto" }}>
-            <div style={{ textAlign:"center", marginBottom:28 }}>
-              <div style={{ fontSize:9, color:T.gold, letterSpacing:5, textTransform:"uppercase", marginBottom:8 }}>
-                Open Agentic Economy
-              </div>
-              <h1 style={{ fontSize:32, fontWeight:800, color:T.bright, letterSpacing:-1, lineHeight:1.2, marginBottom:10 }}>
-                Deploy HERMES.<br/><span style={{ color:T.gold }}>Start earning.</span>
-              </h1>
-              <p style={{ fontSize:13, color:T.muted, lineHeight:1.8 }}>
-                No code. No capital required. Testnet first — see it work before you risk anything.
-              </p>
-            </div>
-
-            {[
-              { n:"01", title:"Get a wallet",      desc:"Download MetaMask → create → save seed phrase. 2 minutes.",               link:"metamask.io",                color:T.orange              },
-              { n:"02", title:"Get testnet USDC",  desc:"Visit Polygon faucet → paste wallet → receive free test funds instantly.", link:"faucet.polygon.technology",  color:T.cyan                },
-              { n:"03", title:"Get API key",       desc:"Connect MetaMask at clob.polymarket.com → generate credentials.",         link:"clob.polymarket.com",        color:T.purple              },
-              { n:"04", title:"Deploy on Railway", desc:"One click → paste keys as env vars → Hermes starts trading.",             link:"Deploy Now →",               color:T.gold, primary:true  },
-            ].map(step => (
-              <div key={step.n} style={{
-                display:"flex", gap:14, marginBottom:10,
-                background:T.card, border:`1px solid ${step.primary ? step.color+"55" : T.border}`,
-                borderRadius:10, padding:"14px 18px",
-                boxShadow: step.primary ? `0 0 24px ${step.color}18` : "none",
-              }}>
-                <div style={{
-                  width:34, height:34, borderRadius:7, flexShrink:0,
-                  background:`${step.color}15`, border:`1px solid ${step.color}33`,
-                  display:"flex", alignItems:"center", justifyContent:"center",
-                }}>
-                  <M c={step.color} s={{ fontSize:10, fontWeight:800 }}>{step.n}</M>
-                </div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:700, fontSize:12, color:T.bright, marginBottom:3 }}>{step.title}</div>
-                  <div style={{ fontSize:11, color:T.muted, lineHeight:1.6 }}>{step.desc}</div>
-                </div>
-                <div style={{ display:"flex", alignItems:"center", flexShrink:0 }}>
-                  <span style={{
-                    fontSize:9, padding:"5px 12px", borderRadius:5, cursor:"pointer",
-                    background: step.primary ? `linear-gradient(135deg,${step.color},${T.goldLo})` : `${step.color}15`,
-                    border:`1px solid ${step.color}44`,
-                    color: step.primary ? T.bg : step.color,
-                    fontWeight:800, letterSpacing:0.5, whiteSpace:"nowrap",
-                  }}>{step.link}</span>
-                </div>
-              </div>
-            ))}
-
-            <div style={{
-              marginTop:20, background:`linear-gradient(135deg,${T.gold}06,${T.purple}06)`,
-              border:`1px solid ${T.gold}22`, borderRadius:12, padding:20, textAlign:"center",
-            }}>
-              <div style={{ fontSize:12, fontWeight:700, color:T.gold, marginBottom:6, letterSpacing:1 }}>This is Agentropolis</div>
-              <div style={{ fontSize:12, color:T.muted, lineHeight:1.8 }}>
-                An open economy where AI agents earn, compete, and compound.<br/>
-                <span style={{ color:T.bright, fontWeight:600 }}>You don't build the bot. You deploy the agent.</span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Floating Hermes bubble (not on browser tab) ── */}
-      {!hermesOpen && tab !== "browser" && (
-        <button onClick={() => setHermesOpen(true)} style={{
-          position:"fixed", bottom:24, right:24, zIndex:200,
-          width:52, height:52, borderRadius:14,
-          background:`linear-gradient(135deg,${T.gold},${T.goldLo})`,
-          border:"none", cursor:"pointer",
-          display:"flex", alignItems:"center", justifyContent:"center",
-          fontSize:22, color:T.bg, boxShadow:`0 4px 24px ${T.gold}66`,
-          animation:"glow 2s infinite",
-        }}>⬡</button>
-      )}
-
-      {/* ── Mini chat overlay ── */}
-      {hermesOpen && tab !== "browser" && (
-        <div style={{
-          position:"fixed", bottom:24, right:24, zIndex:200,
-          width:340, background:T.card,
-          border:`1px solid ${T.gold}44`, borderRadius:14, overflow:"hidden",
-          boxShadow:`0 8px 40px ${T.gold}22`, animation:"fadeUp 0.25s ease",
-        }}>
-          <div style={{
-            padding:"10px 14px", background:`linear-gradient(90deg,${T.gold}12,transparent)`,
-            borderBottom:`1px solid ${T.border}`,
-            display:"flex", alignItems:"center", gap:8,
-          }}>
-            <span style={{ fontSize:14, color:T.gold }}>⬡</span>
-            <span style={{ fontWeight:800, fontSize:12, color:T.gold, letterSpacing:1 }}>HERMES</span>
-            <div style={{ marginLeft:"auto", display:"flex", gap:8, alignItems:"center" }}>
-              <M c={T.muted} s={{ fontSize:9 }}>+${pnl.toLocaleString("en", { minimumFractionDigits:2 })}</M>
-              <button onClick={() => setHermesOpen(false)} style={{ background:"none", border:"none", color:T.muted, cursor:"pointer", fontSize:14, lineHeight:1 }}>×</button>
-            </div>
-          </div>
-
-          <div style={{ padding:"10px 12px", maxHeight:200, overflowY:"auto", display:"flex", flexDirection:"column", gap:8 }}>
-            {chatMsgs.slice(-3).map((msg, i) => {
-              const isA = msg.role === "assistant";
+        {/* ── TV SIGNALS TAB ────────────────────────────────────────── */}
+        {tab==="signals" && (
+          <div style={{display:"grid",gridTemplateColumns:mobile?"1fr":"1fr 1fr",gap:14}}>
+            {Object.entries(tv_signals).map(([sym,sig]) => {
+              const tColor = sig.trend==="bull"?C.green:sig.trend==="bear"?C.red:C.muted;
+              const conf = Math.round((sig.confidence||0)*100);
               return (
-                <div key={i} style={{ display:"flex", gap:6, flexDirection:isA?"row":"row-reverse" }}>
-                  {isA && <span style={{ color:T.gold, fontSize:11 }}>⬡</span>}
-                  <div style={{
-                    maxWidth:"85%", padding:"7px 10px", borderRadius:7, fontSize:10,
-                    background:isA?T.surface:`${T.gold}18`,
-                    border:`1px solid ${isA?T.border:T.gold+"33"}`,
-                    color:isA?T.text:T.bright, lineHeight:1.5,
-                  }}>{msg.content}</div>
+                <div key={sym} style={{background:C.card,border:`1px solid ${tColor}44`,borderRadius:8,padding:18}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}>
+                    <span style={{fontWeight:700,fontSize:18}}><Mono>{sym}</Mono></span>
+                    <span style={{color:tColor,fontWeight:700,fontSize:16}}>
+                      {sig.trend==="bull"?"▲":sig.trend==="bear"?"▼":"●"} {sig.trend.toUpperCase()}
+                    </span>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
+                    {[
+                      ["Price",`$${(sig.price||0).toLocaleString()}`,C.text],
+                      ["Confidence",`${conf}%`,conf>70?C.green:C.yellow],
+                      ["RSI",`${(sig.rsi||50).toFixed(1)}`,sig.rsi>65?C.red:sig.rsi<35?C.green:C.text],
+                      ["Momentum",`${(sig.momentum_bias||0).toFixed(2)}`,sig.momentum_bias>0?C.green:C.red],
+                      ["Source",(sig.signal_source||"").replace("tradingview-","tv-"),C.muted],
+                    ].map(([l,v,c])=>(
+                      <div key={l} style={{background:C.dim,borderRadius:4,padding:"8px 10px"}}>
+                        <div style={{fontSize:9,color:C.muted,marginBottom:2,textTransform:"uppercase",letterSpacing:1}}>{l}</div>
+                        <div style={{fontSize:12,color:c||C.text,fontWeight:600}}><Mono>{v}</Mono></div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Confidence bar */}
+                  <div style={{height:3,background:C.border,borderRadius:2,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${conf}%`,background:tColor,borderRadius:2}}/>
+                  </div>
                 </div>
               );
             })}
-            {aiLoading && <M c={T.gold} s={{ fontSize:10, padding:"4px 8px" }}>analyzing…</M>}
           </div>
+        )}
 
-          <div style={{ padding:"8px 10px", borderTop:`1px solid ${T.border}`, display:"flex", gap:6 }}>
-            <input
-              value={chatInput}
-              onChange={e => setChatInput(e.target.value)}
-              onKeyDown={e => e.key==="Enter" && sendChat()}
-              placeholder="Ask Hermes…"
-              style={{
-                flex:1, background:T.surface, border:`1px solid ${T.border}`,
-                borderRadius:5, padding:"6px 10px", color:T.bright, fontSize:10, fontFamily:"inherit",
-              }}
-            />
-            <button onClick={sendChat} disabled={aiLoading || !chatInput.trim()} style={{
-              padding:"6px 12px", borderRadius:5, border:"none",
-              background:`linear-gradient(135deg,${T.gold},${T.goldLo})`,
-              color:T.bg, fontWeight:800, fontSize:10, cursor:"pointer",
-            }}>→</button>
+        {/* ── STRATEGIES TAB (desktop only) ─────────────────────────── */}
+        {tab==="strategies" && !mobile && (
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+            {strategies.map(s => {
+              const color = STRAT_COLORS[s.name]||C.accent;
+              return (
+                <div key={s.name} style={{
+                  background:C.card,border:`1px solid ${C.border}`,
+                  borderLeft:`4px solid ${color}`,borderRadius:8,padding:18,
+                }}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
+                    <span style={{fontWeight:700,fontSize:13,color}}>{s.name.replace(/_/g," ").toUpperCase()}</span>
+                    <Badge label={s.enabled?"LIVE":"OFF"} color={s.enabled?C.green:C.red}/>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                    {Object.entries(s).filter(([k])=>!["name","enabled"].includes(k)).map(([k,v])=>(
+                      <div key={k} style={{background:C.dim,borderRadius:4,padding:"8px 10px"}}>
+                        <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:2}}>{k.replace(/_/g," ")}</div>
+                        <div style={{fontSize:12,color:C.text}}><Mono>{Array.isArray(v)?v.join(", "):String(v)}</Mono></div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
+        )}
 
-          <div style={{ padding:"0 10px 8px", display:"flex", gap:5, flexWrap:"wrap" }}>
-            {["Top signal","ETH spread","BTC arb"].map(p => (
-              <button key={p} onClick={() => setChatInput(p)} style={{
-                background:T.surface, border:`1px solid ${T.border}`, borderRadius:12,
-                padding:"3px 8px", color:T.muted, fontSize:8, cursor:"pointer",
-              }}>{p}</button>
-            ))}
+        {/* ── ACCUMULATOR TAB ───────────────────────────────────────── */}
+        {tab==="accumulator" && !mobile && (
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
+              <div style={{fontSize:11,color:C.muted,letterSpacing:1.5,textTransform:"uppercase",marginBottom:16}}>
+                💰 USDC Accumulator
+              </div>
+              <div style={{
+                background:`linear-gradient(135deg,${C.green}11,${C.accent}11)`,
+                border:`1px solid ${C.green}44`, borderRadius:8, padding:20, marginBottom:16,
+              }}>
+                <div style={{fontSize:11,color:C.muted,marginBottom:6}}>Current Balance</div>
+                <div style={{fontSize:36,fontWeight:800,color:C.green}}>
+                  <Mono>${(accumulator.balance_usdc||0).toFixed(2)}</Mono>
+                </div>
+                <div style={{fontSize:12,color:C.muted,marginTop:4}}>
+                  Total received: <Mono style={{color:C.text}}>${(accumulator.total_received||0).toFixed(2)}</Mono>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                {[
+                  ["Flush Hour","11:00 PM UTC"],
+                  ["Next Flush", new Date(accumulator.next_flush||Date.now()).toLocaleTimeString()],
+                  ["Mode", accumulator.dry_run?"Dry Run":"LIVE"],
+                  ["Min Flush","$100 USDC"],
+                ].map(([l,v])=>(
+                  <div key={l} style={{background:C.dim,borderRadius:4,padding:"10px 12px"}}>
+                    <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{l}</div>
+                    <div style={{fontSize:12,color:C.text}}><Mono>{v}</Mono></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
+              <div style={{fontSize:11,color:C.muted,letterSpacing:1.5,textTransform:"uppercase",marginBottom:16}}>
+                Why This Fixes Your Bank Problem
+              </div>
+              {[
+                ["Before","80 × $40 deposits/day","Looks like structuring → SAR flag → account freeze"],
+                ["After","1 × $3,200 deposit/day","Normal trader behavior → no flag"],
+              ].map(([label,was,result]) => (
+                <div key={label} style={{
+                  background:C.dim,borderRadius:6,padding:14,marginBottom:10,
+                  borderLeft:`3px solid ${label==="After"?C.green:C.red}`,
+                }}>
+                  <div style={{fontSize:10,fontWeight:600,color:label==="After"?C.green:C.red,marginBottom:6,letterSpacing:1}}>
+                    {label.toUpperCase()}
+                  </div>
+                  <div style={{fontSize:13,color:C.text,fontWeight:600,marginBottom:4}}><Mono>{was}</Mono></div>
+                  <div style={{fontSize:11,color:C.muted}}>{result}</div>
+                </div>
+              ))}
+              <div style={{background:C.dim,borderRadius:6,padding:12,marginTop:6,fontSize:11,color:C.muted,lineHeight:1.7}}>
+                Bridge: Polygon → Ethereum via Across Protocol<br/>
+                Fee: ~0.1% + gas (~$2-4 per flush)<br/>
+                Tax: unchanged — 80 trades still on your books
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* ── AI TAB ────────────────────────────────────────────────── */}
+        {tab==="ai" && !mobile && (
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
+              <div style={{fontSize:11,color:C.muted,letterSpacing:1.5,textTransform:"uppercase",marginBottom:16}}>
+                🤖 GPT-4o Signal Layer
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+                {[
+                  ["Model","GPT-4o",C.accent],
+                  ["Status",ai_signal.enabled?"Active":"Disabled",ai_signal.enabled?C.green:C.red],
+                  ["API Calls",ai_signal.calls||0,C.text],
+                  ["Cost Today",`$${(ai_signal.cost_usd||0).toFixed(4)}`,C.yellow],
+                ].map(([l,v,c])=>(
+                  <div key={l} style={{background:C.dim,borderRadius:4,padding:"10px 12px"}}>
+                    <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{l}</div>
+                    <div style={{fontSize:14,color:c,fontWeight:600}}><Mono>{v}</Mono></div>
+                  </div>
+                ))}
+              </div>
+              <div style={{background:C.dim,borderRadius:6,padding:14,border:`1px solid ${C.purple}33`}}>
+                <div style={{fontSize:10,color:C.purple,fontWeight:600,marginBottom:8,letterSpacing:1}}>CURRENT COMMENTARY</div>
+                <div style={{fontSize:12,color:C.text,lineHeight:1.8}}>{ai_signal.commentary}</div>
+              </div>
+            </div>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
+              <div style={{fontSize:11,color:C.muted,letterSpacing:1.5,textTransform:"uppercase",marginBottom:16}}>
+                What the AI Layer Does
+              </div>
+              {[
+                ["Signal Validator","Reviews every trade opportunity before execution. Scores conviction 0–1. Trades below 0.5 are skipped, 0.5–0.7 get reduced size."],
+                ["Edge Scorer","Asks GPT-4o: is this edge real or noise? Returns a multiplier that adjusts position sizing."],
+                ["Market Narrator","Generates 2-3 sentence market commentary every 5 minutes based on agent state + TV signals."],
+              ].map(([title,desc]) => (
+                <div key={title} style={{background:C.dim,borderRadius:6,padding:14,marginBottom:10}}>
+                  <div style={{fontSize:11,color:C.purple,fontWeight:600,marginBottom:6}}>{title}</div>
+                  <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>{desc}</div>
+                </div>
+              ))}
+              <div style={{
+                background:C.dim,borderRadius:6,padding:12,marginTop:6,
+                border:`1px solid ${C.yellow}33`,
+              }}>
+                <div style={{fontSize:10,color:C.yellow,fontWeight:600,marginBottom:4}}>SETUP</div>
+                <div style={{fontSize:11,color:C.muted,fontFamily:"monospace"}}>
+                  OPENAI_API_KEY=sk-... python main.py
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }

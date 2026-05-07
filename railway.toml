@@ -1,0 +1,17 @@
+[build]
+builder = "dockerfile"
+
+[deploy]
+startCommand = "python main.py --demo"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "always"
+
+[[services]]
+name = "trading-bot"
+
+[services.variables]
+PORT = "8765"
+DEMO_MODE = "1"
+BANKROLL_USDC = "1000"
+POLYMARKET_EDGE_THRESHOLD = "0.06"

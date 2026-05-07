@@ -1,0 +1,9 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "env": {
+    "VITE_API_URL": "https://your-railway-app.railway.app",
+    "VITE_WS_URL": "wss://your-railway-app.railway.app/ws"
+  }
+}
