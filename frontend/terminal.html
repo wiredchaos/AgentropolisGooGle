@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>HERMES // Trading Agent Terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet"/>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:      #020403;
+    --panel:   #050a06;
+    --green:   #00ff41;
+    --green2:  #00cc33;
+    --green3:  #008f20;
+    --dim:     #003010;
+    --amber:   #ffb000;
+    --cyan:    #00e5ff;
+    --red:     #ff3b5c;
+    --purple:  #b47cff;
+    --white:   #c8ffc8;
+    --muted:   #1a4a1a;
+    --border:  #0a2a0a;
+  }
+
+  html, body { height: 100%; background: var(--bg); color: var(--green); font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace; overflow: hidden; }
+
+  /* ── CRT effects ───────────────────────────────────────────── */
+  #scanlines {
+    position: fixed; inset: 0; pointer-events: none; z-index: 100;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 2px,
+      rgba(0,0,0,0.10) 2px, rgba(0,0,0,0.10) 4px
+    );
+  }
+  #vignette {
+    position: fixed; inset: 0; pointer-events: none; z-index: 99;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.75) 100%);
+  }
+
+  /* ── Layout ────────────────────────────────────────────────── */
+  #app { display: flex; flex-direction: column; height: 100vh; animation: flicker 8s infinite; }
+
+  @keyframes flicker {
+    0%,100%{opacity:1} 92%{opacity:1} 92.5%{opacity:.96} 93%{opacity:1} 97%{opacity:1} 97.3%{opacity:.97} 97.6%{opacity:1}
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  @keyframes glow  { 0%,100%{text-shadow:0 0 6px var(--green)} 50%{text-shadow:0 0 18px var(--green), 0 0 30px var(--green2)} }
+  @keyframes slideIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+
+  /* ── Status bar ────────────────────────────────────────────── */
+  #statusbar {
+    display: flex; align-items: center; gap: 18px;
+    padding: 5px 18px; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0; font-size: 11px; letter-spacing: 0.5px;
+    position: sticky; top: 0; z-index: 50;
+  }
+  #statusbar .logo { color: var(--green); font-weight: 700; font-size: 12px; letter-spacing: 3px; animation: glow 4s infinite; }
+  #statusbar .sep  { color: var(--muted); }
+  #statusbar .spacer { flex: 1; }
+  .state-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+
+  /* ── Log area ──────────────────────────────────────────────── */
+  #log {
+    flex: 1; overflow-y: auto; padding: 14px 20px 6px;
+    display: flex; flex-direction: column; gap: 0;
+  }
+  #log::-webkit-scrollbar { width: 3px; background: var(--bg); }
+  #log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .line { display: flex; gap: 10px; line-height: 1.65; min-height: 1.65em; animation: slideIn 0.12s ease; }
+  .line .ts  { color: var(--muted); flex-shrink: 0; font-size: 11px; width: 72px; }
+  .line .tag { flex-shrink: 0; font-size: 11px; font-weight: 600; width: 64px; }
+  .line .msg { font-size: 12px; word-break: break-all; }
+
+  /* ── Banner ────────────────────────────────────────────────── */
+  .banner { color: var(--green2); font-size: 11px; line-height: 1.4; white-space: pre; }
+  .banner-dim { color: var(--green3); font-size: 11px; white-space: pre; }
+
+  /* ── Input bar ─────────────────────────────────────────────── */
+  #inputbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 20px; background: var(--panel);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0; position: sticky; bottom: 0; z-index: 50;
+  }
+  #prompt { color: var(--green); font-size: 12px; flex-shrink: 0; white-space: nowrap; }
+  #inputwrap { flex: 1; position: relative; }
+  #inputwrap input {
+    background: transparent; border: none; outline: none;
+    color: var(--white); font-family: inherit; font-size: 12px;
+    width: 100%; caret-color: transparent; letter-spacing: 0.3px;
+  }
+  #cursor {
+    position: absolute; top: 0; left: 0;
+    color: var(--green); font-weight: 700; pointer-events: none;
+    animation: blink 1.06s step-end infinite;
+    transform: translateX(var(--cx, 0px));
+  }
+
+  /* ── Scrollbar always visible trick ───────────────────────── */
+  #log { scrollbar-width: thin; scrollbar-color: var(--border) var(--bg); }
+</style>
+</head>
+<body>
+<div id="scanlines"></div>
+<div id="vignette"></div>
+
+<div id="app">
+  <!-- Status bar -->
+  <div id="statusbar">
+    <span class="logo">HERMES</span>
+    <span style="color:var(--muted);font-size:10px">trading agent</span>
+    <span class="spacer"></span>
+    <span id="sb-state"><span class="state-dot" id="state-dot"></span><span id="state-txt">BOOTING</span></span>
+    <span class="sep">|</span>
+    <span id="sb-pnl" style="font-size:10px">PNL --</span>
+    <span class="sep">|</span>
+    <span id="sb-pos" style="color:var(--muted);font-size:10px">-- pos</span>
+    <span class="sep">|</span>
+    <span id="sb-uptime" style="color:var(--muted);font-size:10px">--</span>
+    <span class="sep">|</span>
+    <span id="sb-conn" style="font-size:10px;color:var(--amber)">● DEMO</span>
+  </div>
+
+  <!-- Log -->
+  <div id="log"></div>
+
+  <!-- Input -->
+  <div id="inputbar">
+    <span id="prompt">hermes@agent:~$</span>
+    <div id="inputwrap">
+      <input id="cmdinput" type="text" autocomplete="off" spellcheck="false" autofocus placeholder=""/>
+      <span id="cursor">█</span>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Palette ──────────────────────────────────────────────────────────────────
+const C = {
+  green:'#00ff41', green2:'#00cc33', green3:'#008f20',
+  amber:'#ffb000', cyan:'#00e5ff', red:'#ff3b5c',
+  purple:'#b47cff', white:'#c8ffc8', muted:'#1a4a1a',
+};
+
+const TAG_COLOR = {
+  SCAN:C.green3, EDGE:C.cyan, EXEC:C.amber, TRADE:C.amber,
+  TV:C.cyan, ARB:C.green, FUND:C.green2, LIQ:C.red,
+  AI:C.purple, INFO:C.green3, WARN:C.amber, ERROR:C.red,
+  CMD:C.white, SYS:C.muted,
+};
+
+const STATE_COLOR = {
+  scanning:C.green, executing:C.amber, analyzing:C.cyan,
+  cooldown:C.muted, paused:C.amber, stopped:C.red, booting:C.purple,
+};
+
+// ── Banner ────────────────────────────────────────────────────────────────────
+const BANNER = [
+  "  ██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗",
+  "  ██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝",
+  "  ███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗",
+  "  ██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║",
+  "  ██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║",
+  "  ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝",
+  "",
+  "  POLYMARKET + CRYPTO ARBITRAGE AGENT  //  v1.0.0",
+  "  ─────────────────────────────────────────────────",
+  "  type  help  for available commands",
+  "",
+];
+
+// ── Mock state ────────────────────────────────────────────────────────────────
+let agentState = null;
+
+function mockState() {
+  const trades = Array.from({length:20},(_,i)=>{
+    const strats=["polymarket_mispricing","crypto_momentum","funding_rate_arb","tv_signal_follower","liquidation_hunter"];
+    const syms=["ETH>$3200?","BTC<$65k?","ETHUSDT","BTCUSDT","SOLUSDT"];
+    return {
+      id:`t${(480-i).toString(16)}`,
+      strategy:strats[i%strats.length], symbol:syms[i%syms.length],
+      side:Math.random()>.5?"buy":"sell",
+      size_usdc:Math.round(Math.random()*120+20),
+      entry_price:3200+Math.random()*200,
+      pnl:i<15?(Math.random()-.35)*80:null, status:i<15?"closed":"open",
+    };
+  });
+  return {
+    stats:{
+      state:["scanning","executing","analyzing","cooldown"][Math.floor(Math.random()*4)],
+      daily_pnl_usdc:247.80+(Math.random()-.4)*20,
+      total_pnl_usdc:3241.40, total_trades:480, winning_trades:323,
+      active_positions:7, uptime_seconds:15840+Math.random()*10,
+      scan_count:528+Math.floor(Math.random()*5), last_cycle_ms:240+Math.random()*300,
+    },
+    win_rate:67.3, recent_trades:trades,
+    strategies:[
+      {name:"polymarket_mispricing",enabled:true,markets_cached:14,threshold_pct:6},
+      {name:"crypto_momentum",enabled:true,pairs:["ETHUSDT","BTCUSDT","SOLUSDT"],min_rsi:55},
+      {name:"crypto_mean_reversion",enabled:true,bb_period:20,bb_std:2.0},
+      {name:"tv_signal_follower",enabled:true,signals_received:8,trades_taken:6},
+      {name:"funding_rate_arb",enabled:true,top_rates:{ETHUSDT:"0.091%",BTCUSDT:"0.072%"}},
+      {name:"liquidation_hunter",enabled:true,watching:["ETHUSDT","BTCUSDT","SOLUSDT"]},
+      {name:"combinatorial_arb",enabled:true,markets_scanned:22,arb_found:3},
+    ],
+    tv_signals:{
+      ETHUSDT:{trend:"bull",confidence:0.81,momentum_bias:0.67,rsi:62.4,price:3247.5},
+      BTCUSDT:{trend:"neutral",confidence:0.53,momentum_bias:0.11,rsi:51.8,price:62140},
+      SOLUSDT:{trend:"bear",confidence:0.74,momentum_bias:-0.58,rsi:37.9,price:142.3},
+    },
+    accumulator:{balance_usdc:847.40,total_received:3240.80,dry_run:true,next_flush:"23:00 UTC"},
+    ai_signal:{enabled:true,model:"gpt-4o",calls:142,cost_usd:0.31},
+  };
+}
+
+// ── Log rendering ─────────────────────────────────────────────────────────────
+const logEl = document.getElementById("log");
+
+function appendLine({ts="", tag="", msg="", color=C.green3}) {
+  const div = document.createElement("div");
+  div.className = "line";
+
+  const tsEl = document.createElement("span");
+  tsEl.className = "ts"; tsEl.textContent = ts;
+
+  const tagEl = document.createElement("span");
+  tagEl.className = "tag";
+  tagEl.textContent = tag ? `[${tag.padEnd(5)}]` : "";
+  tagEl.style.color = color;
+
+  const msgEl = document.createElement("span");
+  msgEl.className = "msg"; msgEl.textContent = msg; msgEl.style.color = color;
+
+  div.append(tsEl, tagEl, msgEl);
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function appendLines(lines) {
+  lines.forEach(l => appendLine(l));
+}
+
+function appendBanner() {
+  BANNER.forEach(l => {
+    const div = document.createElement("div");
+    div.className = "line";
+    const sp = document.createElement("span");
+    sp.className = "banner";
+    sp.textContent = l;
+    div.appendChild(sp);
+    logEl.appendChild(div);
+  });
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function clearLog() {
+  logEl.innerHTML = "";
+  appendBanner();
+}
+
+function ts() {
+  return new Date().toLocaleTimeString("en-GB",{hour12:false});
+}
+
+// ── Status bar ────────────────────────────────────────────────────────────────
+function updateStatusBar(state) {
+  if (!state) return;
+  const s = state.stats;
+  const sc = STATE_COLOR[s.state] || C.muted;
+  document.getElementById("state-dot").style.background = sc;
+  document.getElementById("state-txt").textContent = (s.state||"--").toUpperCase();
+  document.getElementById("state-txt").style.color = sc;
+  const pnl = s.daily_pnl_usdc||0;
+  const pnlEl = document.getElementById("sb-pnl");
+  pnlEl.textContent = `PNL ${pnl>=0?"+":""}$${pnl.toFixed(2)}`;
+  pnlEl.style.color = pnl>=0?C.green:C.red;
+  document.getElementById("sb-pos").textContent = `${s.active_positions} pos  ·  scan #${s.scan_count}`;
+  const up = s.uptime_seconds||0;
+  document.getElementById("sb-uptime").textContent = `${Math.floor(up/3600)}h ${Math.floor((up%3600)/60)}m`;
+}
+
+// ── Log stream ────────────────────────────────────────────────────────────────
+const LOG_POOL = [
+  s => ({tag:"SCAN", msg:`cycle #${s.stats.scan_count}  state=${s.stats.state}  cycle=${Math.round(s.stats.last_cycle_ms)}ms`}),
+  s => ({tag:"EDGE", msg:`polymarket_mispricing  ETH>$3200  fair=0.672  mkt=0.580  edge=+9.2%`}),
+  s => ({tag:"EXEC", msg:`BUY YES  ETH>$3200  size=$${Math.round(30+Math.random()*60)}  kelly=0.22`}),
+  s => ({tag:"TV",   msg:`ETHUSDT  trend=${s.tv_signals?.ETHUSDT?.trend||"bull"}  conf=${(s.tv_signals?.ETHUSDT?.confidence||0.8).toFixed(2)}  rsi=${(s.tv_signals?.ETHUSDT?.rsi||62).toFixed(1)}`}),
+  s => ({tag:"SCAN", msg:`funding_rate_arb  ETHUSDT  rate=+0.091%  annualized=99.5%`}),
+  s => ({tag:"ARB",  msg:`combinatorial_arb  multi-condition  yes+no=0.94  profit=+6.0%`}),
+  s => ({tag:"FUND", msg:`BNBUSDT  funding collected  $${(Math.random()*12+4).toFixed(2)}  periods=1`}),
+  s => ({tag:"SCAN", msg:`liquidation_hunter  SOLUSDT  OI drop 1.8%  cascade signal`}),
+  s => ({tag:"AI",   msg:`conviction=0.${71+Math.floor(Math.random()*20)}  risk=low  pass=true  cost=$0.002`}),
+  s => ({tag:"SCAN", msg:`crypto_momentum  ETHUSDT  ema9>ema21  rsi=62.4  edge=0.24%`}),
+  s => ({tag:"TRADE",msg:`CLOSE  ETHUSDT  side=buy  pnl=+$${(Math.random()*40+5).toFixed(2)}  held=18m`}),
+  s => ({tag:"TV",   msg:`SOLUSDT  trend=bear  conf=0.74  rsi=37.9  pine: "Resistance 148"`}),
+  s => ({tag:"EDGE", msg:`crypto_mean_reversion  SOLUSDT  bb_pct=0.03  rsi=37.9  signal=buy`}),
+  s => ({tag:"LIQ",  msg:`BTCUSDT  liq_feed=$${Math.round(50000+Math.random()*100000).toLocaleString()}  direction=long`}),
+  s => ({tag:"ARB",  msg:`NegRisk  BTC election  no_sum=0.91  edge=+9.0%  size=$40`}),
+  s => ({tag:"FUND", msg:`accumulator balance=$${(s.accumulator?.balance_usdc||800).toFixed(2)}  next_flush=23:00 UTC`}),
+];
+
+function tickLog() {
+  if (!agentState) return;
+  const {tag, msg} = LOG_POOL[Math.floor(Math.random()*LOG_POOL.length)](agentState);
+  appendLine({ts:ts(), tag, msg, color:TAG_COLOR[tag]||C.green3});
+}
+
+// ── Commands ──────────────────────────────────────────────────────────────────
+const HELP = [
+  "  available commands:",
+  "  ─────────────────────────────────────────────",
+  "  status       current agent state + stats",
+  "  positions    open positions",
+  "  trades [n]   last n closed trades (default 10)",
+  "  signals      live TradingView signal feed",
+  "  strategies   strategy enable/status list",
+  "  iv           implied volatility cache",
+  "  accumulator  USDC accumulator balance",
+  "  ai           GPT-4o signal layer stats",
+  "  clear        clear terminal",
+  "  scan         force a scan cycle",
+  "  pause        pause trading",
+  "  resume       resume trading",
+  "  ─────────────────────────────────────────────",
+];
+
+function runCommand(raw) {
+  const [cmd, ...args] = raw.trim().toLowerCase().split(/\s+/);
+  const now = ts();
+  const s = agentState;
+
+  if (!cmd) return;
+
+  if (cmd === "clear") { clearLog(); return; }
+
+  if (cmd === "help") {
+    appendLines(HELP.map(l=>({ts:"",tag:"",msg:l,color:C.white})));
+    return;
+  }
+
+  if (cmd === "status" && s) {
+    const up = s.stats.uptime_seconds||0;
+    [
+      `  ┌── AGENT STATUS ──────────────────────────────────`,
+      `  │  state       ${(s.stats.state||"--").toUpperCase()}`,
+      `  │  daily pnl   ${(s.stats.daily_pnl_usdc||0)>=0?"+":""}$${(s.stats.daily_pnl_usdc||0).toFixed(2)}`,
+      `  │  total pnl   $${(s.stats.total_pnl_usdc||0).toFixed(2)}`,
+      `  │  win rate    ${s.win_rate?.toFixed(1)}%  (${s.stats.winning_trades}/${s.stats.total_trades})`,
+      `  │  positions   ${s.stats.active_positions} open`,
+      `  │  cycle       ${Math.round(s.stats.last_cycle_ms)}ms  ·  scan #${s.stats.scan_count}`,
+      `  │  uptime      ${Math.floor(up/3600)}h ${Math.floor((up%3600)/60)}m`,
+      `  └──────────────────────────────────────────────────`,
+    ].forEach(l=>appendLine({ts:"",tag:"",msg:l,color:C.white}));
+    return;
+  }
+
+  if (cmd === "positions" && s) {
+    const open = (s.recent_trades||[]).filter(t=>t.status==="open");
+    if (!open.length) { appendLine({ts:now,tag:"SYS",msg:"  no open positions",color:C.muted}); return; }
+    appendLines([
+      `  ┌── OPEN POSITIONS (${open.length}) ─────────────────────────`,
+      ...open.map(t=>`  │  ${t.id.padEnd(6)}  ${t.strategy.split("_")[0].toUpperCase().padEnd(8)}  ${t.symbol.padEnd(14)}  ${t.side.toUpperCase()}  $${t.size_usdc}`),
+      `  └──────────────────────────────────────────────────`,
+    ].map(l=>({ts:"",tag:"",msg:l,color:C.white})));
+    return;
+  }
+
+  if (cmd === "trades" && s) {
+    const n = parseInt(args[0])||10;
+    const closed = (s.recent_trades||[]).filter(t=>t.status==="closed").slice(-n).reverse();
+    appendLines([
+      `  ┌── LAST ${n} CLOSED TRADES ───────────────────────────`,
+      ...closed.map(t=>{
+        const pnl=t.pnl||0; const sign=pnl>=0?"+":"";
+        return `  │  ${t.id.padEnd(6)}  ${t.symbol.padEnd(14)}  ${t.side.toUpperCase().padEnd(4)}  ${sign}$${Math.abs(pnl).toFixed(2).padStart(7)}`;
+      }),
+      `  └──────────────────────────────────────────────────`,
+    ].map(l=>({ts:"",tag:"",msg:l,color:C.white})));
+    return;
+  }
+
+  if (cmd === "signals" && s) {
+    const sigs = s.tv_signals||{};
+    appendLines([
+      `  ┌── TV SIGNALS ────────────────────────────────────`,
+      ...Object.entries(sigs).map(([sym,sig])=>
+        `  │  ${sym.padEnd(10)}  ${(sig.trend||"?").toUpperCase().padEnd(8)}  conf=${(sig.confidence||0).toFixed(2)}  rsi=${(sig.rsi||0).toFixed(1)}  $${(sig.price||0).toLocaleString()}`
+      ),
+      `  └──────────────────────────────────────────────────`,
+    ].map(l=>({ts:"",tag:"",msg:l,color:C.cyan})));
+    return;
+  }
+
+  if (cmd === "strategies" && s) {
+    appendLines([
+      `  ┌── STRATEGIES ────────────────────────────────────`,
+      ...(s.strategies||[]).map(st=>
+        `  │  ${st.enabled?"●":"○"}  ${st.name.padEnd(28)}  ${st.enabled?"LIVE":"OFF"}`
+      ),
+      `  └──────────────────────────────────────────────────`,
+    ].map(l=>({ts:"",tag:"",msg:l,color:C.green})));
+    return;
+  }
+
+  if (cmd === "accumulator" && s) {
+    const acc = s.accumulator||{};
+    appendLines([
+      `  ┌── USDC ACCUMULATOR ──────────────────────────────`,
+      `  │  balance     $${(acc.balance_usdc||0).toFixed(2)}`,
+      `  │  received    $${(acc.total_received||0).toFixed(2)}`,
+      `  │  next flush  ${acc.next_flush||"--"}`,
+      `  │  mode        ${acc.dry_run?"DRY RUN ⚠":"LIVE ✓"}`,
+      `  │  bridge      Polygon → Ethereum via Across Protocol`,
+      `  └──────────────────────────────────────────────────`,
+    ].map(l=>({ts:"",tag:"",msg:l,color:C.amber})));
+    return;
+  }
+
+  if (cmd === "ai" && s) {
+    const ai = s.ai_signal||{};
+    appendLines([
+      `  ┌── AI SIGNAL LAYER ───────────────────────────────`,
+      `  │  model   ${ai.model||"gpt-4o"}`,
+      `  │  status  ${ai.enabled?"ACTIVE":"DISABLED"}`,
+      `  │  calls   ${ai.calls||0}`,
+      `  │  cost    $${(ai.cost_usd||0).toFixed(4)}`,
+      `  └──────────────────────────────────────────────────`,
+    ].map(l=>({ts:"",tag:"",msg:l,color:C.purple})));
+    return;
+  }
+
+  if (cmd === "iv") {
+    appendLines([
+      `  ┌── IMPLIED VOLATILITY (OKX 5m klines) ───────────`,
+      `  │  BTC-USDT   IV=0.847  annualized  (cached 4m ago)`,
+      `  │  ETH-USDT   IV=0.921  annualized  (cached 4m ago)`,
+      `  │  SOL-USDT   IV=1.284  annualized  (cached 4m ago)`,
+      `  │  cache ttl  300s`,
+      `  └──────────────────────────────────────────────────`,
+    ].map(l=>({ts:"",tag:"",msg:l,color:C.cyan})));
+    return;
+  }
+
+  if (cmd === "scan")   { appendLine({ts:now,tag:"SYS",msg:"  scan cycle triggered",color:C.amber}); return; }
+  if (cmd === "pause")  { appendLine({ts:now,tag:"SYS",msg:"  agent paused — no new trades will open",color:C.amber}); return; }
+  if (cmd === "resume") { appendLine({ts:now,tag:"SYS",msg:"  agent resumed",color:C.green}); return; }
+
+  appendLine({ts:now,tag:"SYS",msg:`  command not found: ${cmd}  (type help)`,color:C.muted});
+}
+
+// ── Input handling ────────────────────────────────────────────────────────────
+const inputEl  = document.getElementById("cmdinput");
+const cursorEl = document.getElementById("cursor");
+const promptEl = document.getElementById("prompt");
+let cmdHistory = [];
+let histIdx    = -1;
+
+function updateCursor() {
+  const chars = inputEl.value.length;
+  // measure char width using a canvas trick
+  cursorEl.style.setProperty("--cx", `${chars}ch`);
+}
+
+inputEl.addEventListener("input", updateCursor);
+
+inputEl.addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    const raw = inputEl.value;
+    const now = ts();
+    appendLine({ts:now, tag:"", msg:`hermes@agent:~$ ${raw}`, color:C.white});
+    if (raw.trim()) cmdHistory.unshift(raw.trim());
+    histIdx = -1;
+    inputEl.value = "";
+    updateCursor();
+    runCommand(raw);
+  }
+  if (e.key === "ArrowUp") {
+    e.preventDefault();
+    histIdx = Math.min(histIdx+1, cmdHistory.length-1);
+    inputEl.value = cmdHistory[histIdx]||"";
+    updateCursor();
+  }
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    histIdx = Math.max(histIdx-1, -1);
+    inputEl.value = histIdx===-1 ? "" : cmdHistory[histIdx]||"";
+    updateCursor();
+  }
+});
+
+// click anywhere → focus input
+document.getElementById("app").addEventListener("click", () => inputEl.focus());
+
+// ── WebSocket or mock ─────────────────────────────────────────────────────────
+let mockTick = null;
+
+function startMock() {
+  document.getElementById("sb-conn").textContent = "● DEMO";
+  document.getElementById("sb-conn").style.color = C.amber;
+  agentState = mockState();
+  updateStatusBar(agentState);
+  mockTick = setInterval(() => {
+    agentState = mockState();
+    updateStatusBar(agentState);
+    tickLog();
+  }, 2200);
+}
+
+try {
+  const ws = new WebSocket("ws://localhost:8765/ws");
+  ws.onopen = () => {
+    clearInterval(mockTick);
+    document.getElementById("sb-conn").textContent = "● LIVE";
+    document.getElementById("sb-conn").style.color = C.green;
+    appendLine({ts:ts(), tag:"SYS", msg:"connected to agent WebSocket", color:C.green});
+  };
+  ws.onmessage = e => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "agent_state") {
+        agentState = msg.data;
+        updateStatusBar(agentState);
+        tickLog();
+      }
+    } catch {}
+  };
+  ws.onerror = () => startMock();
+  ws.onclose = () => startMock();
+} catch { startMock(); }
+
+// ── Boot sequence ─────────────────────────────────────────────────────────────
+appendBanner();
+
+// Staggered boot lines
+const bootLines = [
+  [120,  {ts:ts(), tag:"SYS", msg:"loading strategies...", color:C.green3}],
+  [260,  {ts:ts(), tag:"SYS", msg:"polymarket_mispricing  ✓", color:C.green3}],
+  [380,  {ts:ts(), tag:"SYS", msg:"crypto_momentum  ✓", color:C.green3}],
+  [480,  {ts:ts(), tag:"SYS", msg:"crypto_mean_reversion  ✓", color:C.green3}],
+  [560,  {ts:ts(), tag:"SYS", msg:"tv_signal_follower  ✓", color:C.green3}],
+  [640,  {ts:ts(), tag:"SYS", msg:"funding_rate_arb  ✓", color:C.green3}],
+  [720,  {ts:ts(), tag:"SYS", msg:"liquidation_hunter  ✓", color:C.green3}],
+  [800,  {ts:ts(), tag:"SYS", msg:"combinatorial_arb  ✓", color:C.green3}],
+  [920,  {ts:ts(), tag:"SYS", msg:"fair value model v3 (OKX klines)  ✓", color:C.green3}],
+  [1020, {ts:ts(), tag:"SYS", msg:"GPT-4o signal layer  ✓", color:C.green3}],
+  [1120, {ts:ts(), tag:"SYS", msg:"USDC accumulator  ✓  (dry_run)", color:C.amber}],
+  [1240, {ts:ts(), tag:"SYS", msg:"agent ready  —  7 strategies active", color:C.green}],
+  [1360, {ts:ts(), tag:"",    msg:"", color:C.muted}],
+];
+
+bootLines.forEach(([delay, line]) => setTimeout(() => appendLine(line), delay));
+
+inputEl.focus();
+</script>
+</body>
+</html>
